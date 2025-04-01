@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>NOH Black Market Terminal - Jita</title>
+    <meta charset="UTF-8">
+    <style>
+        /* Styles remain the same */
+        body { font-family: 'Consolas', 'Courier New', monospace; background-color: #1a1a1a; color: #00FF00; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+        .container { background-color: #0a0a0a; border: 2px solid #333333; box-shadow: 0 0 15px rgba(0, 255, 0, 0.2); padding: 25px; width: 80%; max-width: 800px; text-align: center; }
+        h1 { color: #FF4500; border-bottom: 1px dashed #555; padding-bottom: 10px; margin-bottom: 20px; letter-spacing: 2px; text-shadow: 0 0 5px #FF4500; }
+        #kreditDisplayContainer { /* Renamed for clarity */ font-size: 1.5em; margin-bottom: 25px; background-color: #111; padding: 10px; border: 1px solid #444; display: inline-block; }
+        #kreditDisplayContainer span { color: #FFA500; font-weight: bold; }
+        .item-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px; text-align: left; }
+        .item { background-color: #222; border: 1px solid #444; padding: 15px; transition: background-color 0.3s ease; }
+        .item.purchased-session { /* New class for items bought THIS session */ border-color: #00FF00; background-color: #1a3a1a; }
+        .item h3 { color: #00FFFF; margin-top: 0; margin-bottom: 5px; font-size: 1.1em; }
+        .item .cost { color: #FFA500; font-weight: bold; margin-bottom: 10px; }
+        .item .desc { font-size: 0.9em; color: #cccccc; margin-bottom: 15px; min-height: 40px; }
+        .buy-button { background-color: #8B0000; color: white; border: 1px solid #FF4500; padding: 8px 15px; cursor: pointer; transition: background-color 0.3s ease; width: 100%; font-weight: bold; }
+        .buy-button:hover:not(:disabled) { background-color: #FF4500; }
+        .buy-button:disabled { background-color: #333; color: #777; border-color: #555; cursor: not-allowed; }
+        .buy-button.acquired { background-color: #006400; border-color: #00FF00; color: white; } /* Style for acquired button */
+        #returnButton { background-color: #0055BB; color: white; border: 1px solid #00FFFF; padding: 12px 25px; font-size: 1.1em; cursor: pointer; transition: background-color 0.3s ease; margin-top: 20px; }
+        #returnButton:hover { background-color: #0088DD; }
+        .error { color: red; font-weight: bold; margin-bottom: 20px; }
+        /* Styles for Intel Selling Section */
+        #intelSellSection { display: none; margin-top: 30px; padding-top: 20px; border-top: 1px dashed #555; text-align: center; }
+        #intelSellSection h2 { color: #FFA500; margin-bottom: 15px; }
+        #intelSellSection div { margin-bottom: 8px; font-size: 1.1em; }
+        #intelSellSection span { color: #00FFFF; font-weight: bold; }
+        #sellIntelButton { background-color: #008000; color: white; border: 1px solid #00FF00; padding: 10px 20px; cursor: pointer; transition: background-color 0.3s ease; }
+        #sellIntelButton:hover:not(:disabled) { background-color: #00AA00; }
+        #sellIntelButton:disabled { background-color: #333; color: #777; border-color: #555; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>// NAPANI OFF-LEDGER HOLDINGS // SECURE TERMINAL //</h1>
+
+        <div id="kreditDisplayContainer">Available Kredits: <span id="kreds">--</span> NOH</div>
+        <div id="errorMessage" class="error" style="display: none;"></div>
+
+        <h2>Available Inventory: (Multiple Purchases Allowed)</h2>
+        <div class="item-list" id="itemList">
+            <!-- Items will be loaded here by JavaScript -->
+        </div>
+
+        <!-- Intel Selling Section -->
+        <div id="intelSellSection">
+            <h2>Intel Transmission</h2>
+            <div>Captured Fragments Ready: <span id="sellableLogs">0</span></div>
+            <div>Payout per Fragment: <span id="logValue">--</span> ISK</div>
+            <button id="sellIntelButton" disabled>Transmit Logs for ISK</button>
+            <div id="intelSellMessage" style="margin-top:10px; color: lime; font-weight: bold;"></div>
+        </div>
+        <!-- End Intel Selling Section -->
+
+
+        <button id="returnButton">Return to Capsule</button>
+    </div>
+
+    <script>
+        const ISK_TO_KRED_RATE = 100;
+        const MINER_GAME_FILE = "jita.html";
+        const ISK_PER_LOG = 1000; // Value for each log sold
+        const BLACK_MARKET_ENTRY_ISK = 7770; // Ensure this matches Jita.html
+
+        // --- Item Data ---
+        const marketItems = [
+            { id: 'cargo_expander_1', name: 'Cargo Expander I', cost: 50, desc: 'Increases ship cargo capacity. Standard Napanii surplus.', effect: '+50 Max Cargo' },
+            { id: 'mining_laser_upgrade_1', name: 'MLU-7 "Rockeater"', cost: 120, desc: 'Modified mining laser focusing crystal. Questionable stability, improved yield.', effect: '+10 Mining Rate' },
+            { id: 'afterburner_1', name: 'Smuggler\'s Afterburner', cost: 80, desc: 'Overclocked propulsion module. Runs hot, moves fast.', effect: '+80 Thrust Power' },
+            { id: 'long_range_scanner', name: 'Modified Survey Scanner', cost: 70, desc: 'Boosted sensor array allows targetting asteroids from further away.', effect: '+30 Mining Range' },
+            { id: 'intel_logger_1', name: 'Covert Log Scraper', cost: 50, desc: 'Passively records local communication fragments. Network Operations use only.', effect: 'Enables Intel Collection' }
+        ];
+
+        // --- Get References ---
+        const kreditDisplayEl = document.getElementById('kreds');
+        const itemListEl = document.getElementById('itemList');
+        const returnButtonEl = document.getElementById('returnButton');
+        const errorMessageEl = document.getElementById('errorMessage');
+        const kreditDisplayContainerEl = document.getElementById('kreditDisplayContainer'); // Ref to container for messages
+        // Intel Section Refs
+        const intelSellSectionEl = document.getElementById('intelSellSection');
+        const sellableLogsEl = document.getElementById('sellableLogs');
+        const logValueEl = document.getElementById('logValue');
+        const sellIntelButtonEl = document.getElementById('sellIntelButton');
+        const intelSellMessageEl = document.getElementById('intelSellMessage');
+
+
+        // --- State Variables ---
+        let initialIsk = 0;
+        let currentKredits = 0; // Kredits available for spending IN THIS SESSION
+        let sessionPurchasedItems = []; // IDs of items bought in THIS SESSION
+        let sellableLogCount = 0; // Logs received from Jita.html
+        let intelIskSold = 0; // ISK gained from selling logs in THIS SESSION
+
+        // --- Functions ---
+        function displayError(message) {
+            console.error("Black Market Error:", message);
+            errorMessageEl.textContent = `ACCESS DENIED: ${message}`;
+            errorMessageEl.style.display = 'block';
+            document.querySelectorAll('.buy-button').forEach(btn => btn.disabled = true);
+            if(returnButtonEl) returnButtonEl.disabled = true;
+            if(sellIntelButtonEl) sellIntelButtonEl.disabled = true;
+        }
+
+        function updateBuyButtonStates() {
+            document.querySelectorAll('.buy-button').forEach(btn => {
+                // Don't re-enable buttons already marked as acquired in this session
+                if (!btn.classList.contains('acquired')) {
+                    const itemCost = parseInt(btn.dataset.itemCost, 10);
+                    btn.disabled = currentKredits < itemCost;
+                }
+            });
+        }
+
+        function loadItems() {
+            console.log("loadItems called. Current Kredits:", currentKredits);
+            if (!itemListEl) {
+                console.error("itemListEl not found!");
+                return;
+            }
+            itemListEl.innerHTML = '';
+            if (!marketItems || marketItems.length === 0) {
+                 console.error("marketItems array is empty or invalid!");
+                 return;
+            }
+
+            marketItems.forEach(item => {
+                try {
+                    const itemDiv = document.createElement('div');
+                    itemDiv.classList.add('item');
+                    itemDiv.id = `item-${item.id}`;
+
+                    const title = document.createElement('h3');
+                    title.textContent = item.name || 'Unnamed Item';
+
+                    const costP = document.createElement('div');
+                    costP.classList.add('cost');
+                    costP.textContent = `Cost: ${item.cost || 0} NOH`;
+
+                    const descP = document.createElement('div');
+                    descP.classList.add('desc');
+                    descP.textContent = item.desc || 'No description.';
+
+                    const effectP = document.createElement('div');
+                    effectP.classList.add('cost');
+                    effectP.textContent = `Effect: ${item.effect || 'Unknown'}`;
+
+                    const buyButton = document.createElement('button');
+                    buyButton.classList.add('buy-button');
+                    buyButton.textContent = 'Acquire';
+                    buyButton.dataset.itemId = item.id;
+                    buyButton.dataset.itemCost = item.cost;
+                    buyButton.disabled = currentKredits < item.cost; // Initial check
+                    buyButton.addEventListener('click', handleBuyClick);
+
+                    itemDiv.appendChild(title);
+                    itemDiv.appendChild(costP);
+                    itemDiv.appendChild(descP);
+                    itemDiv.appendChild(effectP);
+                    itemDiv.appendChild(buyButton);
+                    itemListEl.appendChild(itemDiv);
+
+                } catch (error) {
+                    console.error(`Error creating item element for ${item.id}:`, error);
+                }
+            });
+             console.log("loadItems finished.");
+             updateBuyButtonStates(); // Ensure buttons reflect initial kredit state
+        }
+
+        function handleBuyClick(event) {
+            const button = event.target;
+            const itemId = button.dataset.itemId;
+            const itemCost = parseInt(button.dataset.itemCost, 10);
+
+            if (isNaN(itemCost)) {
+                console.error("Invalid item cost for:", itemId);
+                showMessage('Error: Invalid item data!', 'red', kreditDisplayContainerEl);
+                return;
+            }
+
+            if (currentKredits >= itemCost) {
+                currentKredits -= itemCost; // Deduct cost
+                sessionPurchasedItems.push(itemId); // Add to list of items bought this session
+                console.log(`Bought item: ${itemId}, Kredits remaining for session: ${currentKredits}. Session purchases: [${sessionPurchasedItems.join(', ')}]`);
+
+                // Mark this button and item div as acquired FOR THIS SESSION
+                button.textContent = "Acquired";
+                button.disabled = true;
+                button.classList.add('acquired'); // Add class to style it
+                const itemDiv = document.getElementById(`item-${itemId}`);
+                if (itemDiv) {
+                    itemDiv.classList.add('purchased-session');
+                }
+
+                // Update Kredits display
+                kreditDisplayEl.textContent = currentKredits;
+                showMessage(`Acquired: ${marketItems.find(i => i.id === itemId)?.name || 'Unknown Item'}`, 'lime', kreditDisplayContainerEl);
+
+                // Re-evaluate all other buttons based on remaining Kredits
+                updateBuyButtonStates();
+
+            } else {
+                // This case should ideally not happen if buttons are correctly disabled, but good to have a fallback.
+                console.error("Insufficient Kredits clicked - button should have been disabled.");
+                showMessage('Error: Insufficient Kredits!', 'red', kreditDisplayContainerEl);
+            }
+        }
+
+        function handleSellIntelClick() {
+             if (sellableLogCount <= 0) return;
+
+             const iskEarned = sellableLogCount * ISK_PER_LOG;
+             intelIskSold += iskEarned; // Add to session total sold ISK
+             console.log(`Sold ${sellableLogCount} logs for ${iskEarned} ISK. Total ISK from logs this session: ${intelIskSold}`);
+
+             // Update UI
+             sellableLogsEl.textContent = '0'; // Logs are gone
+             sellIntelButtonEl.disabled = true; // Can't sell again
+             intelSellMessageEl.textContent = `Transmission successful. ${iskEarned.toLocaleString()} ISK credited.`;
+             showMessage(`+${iskEarned.toLocaleString()} ISK`, 'cyan', intelSellMessageEl);
+
+             sellableLogCount = 0; // Prevent re-selling bugs
+        }
+
+        function handleReturnClick() {
+             // Kredits remaining are just currentKredits now
+             const kreditsToConvert = currentKredits;
+             const iskFromKredits = Math.floor(kreditsToConvert * ISK_TO_KRED_RATE);
+             const iskFromIntel = intelIskSold;
+             const finalIsk = iskFromKredits + iskFromIntel + BLACK_MARKET_ENTRY_ISK;
+
+             // Construct return URL
+             let returnUrl = `${MINER_GAME_FILE}?isk=${finalIsk}`;
+             // Append all items bought THIS session, comma-separated
+             if (sessionPurchasedItems.length > 0) {
+                 returnUrl += `&items=${sessionPurchasedItems.join(',')}`; // Use 'items' (plural)
+             }
+
+             console.log(`Returning. Kredits left: ${kreditsToConvert}, ISK from Kredits: ${iskFromKredits}, ISK from Intel: ${iskFromIntel}, Entry Fee Returned: ${BLACK_MARKET_ENTRY_ISK}, Final ISK: ${finalIsk}`);
+             console.log(`Items purchased this session: [${sessionPurchasedItems.join(', ')}]`);
+             console.log(`Return URL: ${returnUrl}`);
+             window.location.href = returnUrl;
+        }
+
+        // Use element parameter for message flashing
+        function showMessage(text, color = '#00FF00', element) {
+             if (!element) return;
+             console.log(`Market Message (${color}): ${text}`);
+             const originalColor = element.style.color;
+             element.style.transition = 'color 0.2s ease-out, text-shadow 0.2s ease-out';
+             element.style.color = color;
+             element.style.textShadow = `0 0 8px ${color}`;
+
+             setTimeout(() => {
+                 element.style.color = originalColor || '';
+                 element.style.textShadow = 'none';
+             }, 1500);
+        }
+
+        // --- Initialization ---
+        window.onload = () => {
+            console.log("JitaBM.html loaded. Starting script.");
+            const urlParams = new URLSearchParams(window.location.search);
+            const initialIskStr = urlParams.get('isk');
+            const logCountStr = urlParams.get('logs');
+
+            console.log(`URL Params: isk=${initialIskStr}, logs=${logCountStr}`);
+
+            initialIsk = parseInt(initialIskStr, 10);
+
+            // --- Critical Validation ---
+            if (isNaN(initialIsk)) {
+                displayError("ACCESS CREDENTIALS CORRUPT (Invalid ISK).");
+                return;
+            }
+            if (initialIsk < BLACK_MARKET_ENTRY_ISK) {
+                displayError(`INSUFFICIENT FUNDS (Requires ${BLACK_MARKET_ENTRY_ISK.toLocaleString()} ISK Entry Fee).`);
+                return;
+            }
+            // --------------------------
+
+            // Calculate starting Kredits (ISK *above* entry fee)
+            currentKredits = Math.floor((initialIsk - BLACK_MARKET_ENTRY_ISK) / ISK_TO_KRED_RATE);
+            kreditDisplayEl.textContent = currentKredits;
+            console.log(`Parsed ISK: ${initialIsk}. Entry fee: ${BLACK_MARKET_ENTRY_ISK}. Calculated Kredits: ${currentKredits}`);
+
+            // --- Load buyable items ---
+            loadItems(); // Loads items and sets initial button states
+            // -------------------------
+
+            // Handle incoming logs for selling
+            if (logCountStr) {
+                sellableLogCount = parseInt(logCountStr, 10);
+                if (!isNaN(sellableLogCount) && sellableLogCount > 0) {
+                    console.log(`Received ${sellableLogCount} intel logs for sale.`);
+                    sellableLogsEl.textContent = sellableLogCount;
+                    logValueEl.textContent = `${ISK_PER_LOG.toLocaleString()}`;
+                    intelSellSectionEl.style.display = 'block';
+                    sellIntelButtonEl.disabled = false;
+                } else {
+                    console.log("No valid intel logs received or count is zero.");
+                }
+            } else {
+                console.log("No intel logs parameter received.");
+            }
+
+            // Add event listeners
+            if(returnButtonEl) returnButtonEl.addEventListener('click', handleReturnClick);
+            if(sellIntelButtonEl) sellIntelButtonEl.addEventListener('click', handleSellIntelClick);
+
+            console.log("Initialization complete.");
+        };
+
+    </script>
+</body>
+</html>
