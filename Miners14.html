@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Pixel Miner Deluxe - DEBUG v14</title> <!-- DEBUG Title -->
+    <style>
+        /* Styles remain the same as Miners13.html */
+        body, html { margin: 0; padding: 0; overflow: hidden; background-color: black; color: white; font-family: 'Consolas', 'Courier New', monospace; }
+        canvas { display: block; }
+        #ui { position: absolute; top: 10px; left: 10px; padding: 5px; background-color: rgba(0, 0, 0, 0.6); border: 1px solid #555; font-size: 14px; line-height: 1.4; pointer-events: none; z-index: 10; width: 280px; }
+        #plexBarContainer { margin-top: 5px; padding-top: 5px; border-top: 1px solid #555; }
+        #plexBar { width: 100%; height: 15px; background-color: #440000; border: 1px solid #880000; box-sizing: border-box; }
+        #plexBarFill { width: 100%; height: 100%; background-color: #00FF00; transition: width 0.5s ease-out; }
+        #plexBarLabel { font-size: 11px; color: #AAA; margin-bottom: 2px; }
+        #plexBarContainer.warning #plexBarFill { background-color: #FFA500; }
+        #plexBarContainer.critical #plexBarFill { background-color: #FF0000; animation: pulseRed 1s infinite; }
+        @keyframes pulseRed { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
+        #message { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 10px; background-color: rgba(0, 50, 100, 0.8); border: 1px solid cyan; color: white; font-size: 16px; display: none; text-align: center; pointer-events: none; z-index: 10; max-width: 80%; }
+        #message.local-chat { background-color: rgba(30, 30, 30, 0.85); border: 1px solid #888; text-align: left; font-style: italic; }
+        #ticker { position: absolute; bottom: 10px; right: 10px; width: 300px; max-height: 100px; padding: 5px; background-color: rgba(10, 10, 10, 0.7); border: 1px solid #444; font-size: 11px; line-height: 1.3; color: #BBB; overflow: hidden; pointer-events: none; z-index: 5; }
+        #ticker p { margin: 0 0 2px 0; padding: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        #ticker-title { font-weight: bold; color: #DDD; margin-bottom: 4px; border-bottom: 1px solid #555; padding-bottom: 2px; }
+        #gameOverOverlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.85); color: #FF4444; font-size: 24px; display: none; flex-direction: column; justify-content: center; align-items: center; text-align: center; z-index: 100; cursor: pointer; }
+        #gameOverOverlay p { margin: 10px 0; }
+        #gameOverOverlay small { font-size: 16px; color: #AAA; margin-top: 20px; }
+        body.tidi-active::after { content: ''; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(120, 50, 150, 0.15); pointer-events: none; z-index: 90; opacity: 1; transition: opacity 0.5s ease-in-out; }
+
+        /* BLACK MARKET CHANGE: Style for the market button */
+        #blackMarketButton {
+            display: none; /* Hidden by default */
+            background-color: #550000;
+            color: #FFAAAA;
+            border: 1px solid #FF0000;
+            padding: 5px 10px;
+            margin-top: 10px;
+            cursor: pointer; /* Indicate it's clickable */
+            text-align: center;
+            font-weight: bold;
+            pointer-events: auto; /* Allow clicks on this specific element */
+        }
+        #blackMarketButton:hover { background-color: #880000; }
+        #activeItemDisplay { /* BLACK MARKET CHANGE: Area to show active item */
+            margin-top: 5px;
+            padding-top: 5px;
+            border-top: 1px solid #555;
+            font-size: 12px;
+            color: #00FF00;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <div id="ui">
+        <div>ISK: <span id="isk">0</span></div>
+        <div>Cargo Hold: <span id="cargo">0</span> / <span id="maxCargo">100</span></div>
+        <div>Controls: [W] Thrust | [A/D] Turn | [M] Mine | [L] Local | [P] Buy PLEX | [ '[' Cyno | ']' Battle</div>
+        <div>Objective: Mine Veldspar, Stay PLEXed, Don't get repo'd!</div>
+        <div id="plexBarContainer">
+            <div id="plexBarLabel">Capsuleer License Time:</div>
+            <div id="plexBar"><div id="plexBarFill"></div></div>
+        </div>
+        <!-- BLACK MARKET CHANGE: Button added inside UI box -->
+        <div id="blackMarketButton">Enter Black Market (Jita 4-4)</div>
+        <!-- BLACK MARKET CHANGE: Display for active item -->
+        <div id="activeItemDisplay">Ship Systems: Nominal</div>
+    </div>
+    <div id="message"></div>
+    <div id="ticker"><div id="ticker-title">Recent Transmissions:</div></div>
+    <div id="gameOverOverlay">
+        <p>!!! CONNECTION LOST !!!</p>
+        <p>Capsule Subscription Expired.</p>
+        <p>Vessel Impounded by CONCORD Authority.</p>
+        <p>Final ISK Balance: <span id="finalIsk">0</span></p>
+        <small>Click or Press Enter to Reactivate Clone Facility</small>
+    </div>
+
+    <script>
+        // --- Get references ---
+        const canvas = document.getElementById('gameCanvas'); const ctx = canvas.getContext('2d');
+        const iskEl = document.getElementById('isk'); const cargoEl = document.getElementById('cargo');
+        const maxCargoEl = document.getElementById('maxCargo'); const messageEl = document.getElementById('message');
+        const tickerEl = document.getElementById('ticker'); const plexBarFillEl = document.getElementById('plexBarFill');
+        const plexBarContainerEl = document.getElementById('plexBarContainer');
+        const gameOverOverlayEl = document.getElementById('gameOverOverlay'); const finalIskEl = document.getElementById('finalIsk');
+        const blackMarketButtonEl = document.getElementById('blackMarketButton'); // BLACK MARKET CHANGE
+        const activeItemDisplayEl = document.getElementById('activeItemDisplay'); // BLACK MARKET CHANGE
+
+        // --- Game Config ---
+        const SCREEN_WIDTH = window.innerWidth; const SCREEN_HEIGHT = window.innerHeight;
+        canvas.width = SCREEN_WIDTH; canvas.height = SCREEN_HEIGHT; ctx.imageSmoothingEnabled = false;
+
+        // Colors (remain the same)
+        const PLAYER_COLORS = { main: '#FFFFFF', trim: '#CCCCCC', cockpit: '#00FFFF', thrust: '#FFA500' };
+        const STATION_COLORS = { main: '#0000FF', trim: '#00FFFF', lights_off: '#FFFF00', lights_on: '#FFFFFF' };
+        const ASTEROID_COLORS = { main: '#8B4513', dark: '#654321', light: '#A0522D' };
+        const MINING_BEAM_COLOR_START = 'rgba(255, 0, 0, 0.9)'; const MINING_BEAM_COLOR_END = 'rgba(255, 100, 100, 0.5)';
+        const PARTICLE_COLORS = ['#FFA500', '#FF4500', '#FF6347', '#FFD700'];
+        const NPC_FRIGATE_COLORS = { main: '#FF0000', trim: '#AA0000', cockpit: '#FFAAAA' };
+        const NPC_HAULER_COLORS = { main: '#00FF00', trim: '#00AA00', cockpit: '#AAFFAA' };
+        const CONCORD_COLORS = { main: '#0055BB', trim: '#FFFFFF', cockpit: '#00FFFF', thrust: '#EEEEFF' };
+        const CYNO_COLORS = { center: 'rgba(200, 220, 255, 0.9)', middle: 'rgba(100, 150, 255, 0.6)', edge: 'rgba(50, 80, 200, 0.2)', lightning: 'rgba(255, 255, 255, 0.7)', flash: 'rgba(255, 255, 255, 0.95)'};
+        const BIG_SHIP_COLORS = { hull: '#2C2C2C', lines: '#505050', lights: '#FFFF99', engine: '#FF8844' };
+
+        // Gameplay Constants
+        let PLAYER_THRUST_POWER = 200; // Now 'let' so it can be modified
+        let PLAYER_TURN_RATE = Math.PI * 1.8; // Now 'let'
+        const PLAYER_FRICTION = 0.3;
+        let PLAYER_MAX_CARGO = 100; // Now 'let'
+        let MINING_RATE = 25; // Now 'let'
+        let MINING_RANGE = 70; // Now 'let'
+        const STATION_DOCKING_RADIUS_BUFFER = 10;
+        const ASTEROID_COUNT = 20; const ASTEROID_BELT_RADIUS = Math.min(SCREEN_WIDTH, SCREEN_HEIGHT) * 0.35; const ASTEROID_BELT_CENTER_X = SCREEN_WIDTH * 0.7; const ASTEROID_BELT_CENTER_Y = SCREEN_HEIGHT * 0.5;
+        const ASTEROID_WOBBLE_SPEED = 0.5; const ASTEROID_WOBBLE_AMOUNT = 0.05; const STAR_COUNT = 200;
+        const NPC_COUNT = 5; const NPC_SPEED_MIN = 30; const NPC_SPEED_MAX = 60; const NPC_DESPAWN_BUFFER = 250;
+        const LOCAL_CHAT_RANGE = 150; const LOCAL_CHAT_COOLDOWN = 3000; const LOCAL_CHAT_DURATION = 5000; const TICKER_MAX_MESSAGES = 5;
+        const ISK_PER_VELDSPAR_UNIT = 15; const PLEX_TIME_INITIAL = 600; const PLEX_COST_ISK = 5000;
+        const PLEX_TIME_VALUE = 300; const PLEX_WARNING_THRESHOLD = 0.25; const PLEX_CRITICAL_THRESHOLD = 0.10;
+        const CONCORD_SPEED = 100; const CONCORD_IMPOUND_RANGE = 50; const CONCORD_FINISH_DELAY = 4;
+        const FLEET_BATTLE_CHANCE_PER_SECOND = 0.005; const FLEET_BATTLE_MIN_COOLDOWN = 180; const FLEET_BATTLE_MAX_COOLDOWN = 600; const DISTANT_BATTLE_RADIUS = 150; const DISTANT_SHIP_COUNT = 30; const DISTANT_SHIP_SPEED = 5; const BATTLE_VISUAL_DURATION = 20; const TIDI_ENGAGE_DURATION = 15; const TIDI_RESOLVE_DELAY = 3; const TIDI_FACTOR_LOW = 0.12; const TIDI_FACTOR_RECOVERED = 0.87; const AFTERMATH_CHANCE = 0.15;
+        const CYNO_CHANCE_PER_SECOND = 0.008; const CYNO_MIN_COOLDOWN = 120; const CYNO_MAX_COOLDOWN = 480; const CYNO_FORM_DURATION = 1.5; const CYNO_PULSE_DURATION = 3.0; const CYNO_FLASH_DURATION = 0.2; const CYNO_FADE_DURATION = 1.0; const CYNO_MAX_RADIUS = 60; const CYNO_LIGHTNING_CHANCE = 0.2; const CYNO_LIGHTNING_DURATION = 0.15;
+        const BIG_SHIP_MIN_SIZE = { w: 120, h: 40 }; const BIG_SHIP_MAX_SIZE = { w: 200, h: 80 }; const BIG_SHIP_SPEED_MIN = 5; const BIG_SHIP_SPEED_MAX = 15; const BIG_SHIP_DESPAWN_BUFFER = 300;
+
+        // BLACK MARKET CHANGE: Constants
+        const BLACK_MARKET_ENTRY_ISK = 10000;
+        const BLACK_MARKET_HTML_FILE = "BlackMarket.html"; // Name of the second file
+
+        const LOCAL_CHAT_MESSAGES = [ /* ... messages remain the same ... */ "o7", "o7", "o7 CMDR", "7o", "hi", "sup", "yo", "Clear", "Clear?", "System clear.", "gf", "gf", "gf!", "Good fight.", "Was close.", "Nice brawl.", "Well played.", "?", "¿", ".", "..", "...", "Anyone seen any good belts around?", "This belt is dry.", "Any roids left?", "Veldspar prices holding?", "Need boosts?", "Orca on grid?", "Mining permit check!", "Show permit!", "Need cyno for hauler.", "Jump freighter moving.", "Industry jobs done.", "Building components.", "Planetary interaction update?", "Jetcan full.", "Can someone scoop my can?", "Watch out for ninjas.", "AFK mining.", "Gas site found.", "Ice belt depleted.", "Compression array online?", "Moon chunk secured.", "Refinery cycle finishing.", "Need backup in O-VWXB, reds tackled.", "Tackle!", "Point!", "Scram!", "Web!", "Target called.", "Primary is the Drake.", "Switching target.", "Need reps!", "Armor low!", "Shields down!", "Cap stable?", "Neutralizing target.", "Warping fleet.", "Gate is green.", "Gate is red, hold.", "Hold cloak.", "Bubble up!", "Dictor on field.", "Enemy fleet incoming.", "D-scan clear.", "Check D-scan!", "FC, what do?", "Logi anchor up.", "Keep range.", "Burn towards.", "Align out.", "Prop mod on.", "Hotdropping.", "Blops cyno lit.", "Target painted.", "EWAR active.", "Enemy logi is primary.", "Breaking reps.", "Anyone running L4s?", "Blitzing missions.", "Need salvage?", "Wreck field clear.", "Escalation triggered.", "Running DED site.", "Ratting carrier spotted.", "Faction spawn!", "Burner mission active.", "Drifter patrols?", "Triglavian invasion system.", "Emerging Conduit.", "Forward operating base nearby.", "Incursion fleet forming?", "Sansha scouts.", "Guristas hideout.", "Blood Raider covenant.", "Angel Cartel presence.", "WTS [Item Name], PST.", "WTB Tritanium bulk.", "Price check on PLEX.", "Jita running slow?", "Contract up.", "Public courier available.", "Scam alert in local.", "Check market orders.", "Undercutting again...", "Need appraisal.", "Blue loot value?", "Sell orders filled.", "Buying skill injectors.", "Amarr Victor!", "For the State!", "Gallente strong!", "Freedom for Matar!", "Jove space secure?", "Remember the Titan.", "Empress Catiz watching.", "Federation Day soon.", "Tribal Council meets.", "CONCORD response time?", "Is that a Jovian ship?", "Never forget Seyllin.", "The Sleeper stirs.", "Triglavian Collective communication intercepted.", "Zorya's gaze.", "What are the Drifters planning?", "Echoes from the Abyss.", "Capsuleer immortality...", "Clone bay operational.", "Neural interface stable.", "Can I bring my Drake?", "TEST alliance best alliance.", "Keepstar down!", "Awoxing attempt failed.", "FC, I'm tackled.", "Already replaced.", "Spin ship in station.", "Docking request denied.", "Wrong overview tab.", "Friendly fire incident.", "Who shot the structure?", "Need more spreadsheets.", "EVE is real.", "Slow day.", "AFK", "BRB bio.", "Who's flying that?", "Nice paint job.", "New ship smell.", "Just passing through.", "Lost connection.", "Server hamster needs feeding.", "Warp drive active.", "Autopilot engaged.", "System laggy.", "Anyone else getting disconnects?", "Time dilation factor?", "Traffic control busy.", "Undocking now.", "Pod express.", "Jump clone ready.", "Long trip ahead." ];
+
+        // --- Asset Rendering ---
+        const sprites = { player: null, player_thrust: null, station: null, asteroid: null, npc_frigate: null, npc_hauler: null, concord_ship: null };
+        const spriteData = { /* ... sprite data remains the same ... */
+             player: { width: 16, height: 16, pixels: [ 0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0, 0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0, 0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0, 0,0,0,0,1,1,1,3,3,1,1,1,0,0,0,0, 0,0,0,1,1,1,1,3,3,1,1,1,1,0,0,0, 0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0, 0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0, 1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1, 1,1,1,0,0,0,0,0,0,0,0,0,0,1,1,1, 0,2,2,0,0,0,0,0,0,0,0,0,0,2,2,0, 0,2,2,0,0,0,0,0,0,0,0,0,0,2,2,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 ] },
+            station: { width: 48, height: 48, pixels: [] },
+            asteroid: { width: 24, height: 24, pixels: [] },
+            npc_frigate: { width: 14, height: 18, pixels: [ 0,0,0,0,0,0,1,1,0,0,0,0,0,0, 0,0,0,0,0,1,1,1,1,0,0,0,0,0, 0,0,0,0,1,1,1,1,1,1,0,0,0,0, 0,0,0,1,1,1,3,3,1,1,1,0,0,0, 0,0,1,1,1,1,1,1,1,1,1,1,0,0, 0,1,1,1,1,1,1,1,1,1,1,1,1,0, 1,1,1,1,1,1,1,1,1,1,1,1,1,1, 1,1,1,1,1,1,1,1,1,1,1,1,1,1, 1,1,1,1,1,1,1,1,1,1,1,1,1,1, 0,2,1,1,1,1,1,1,1,1,1,1,2,0, 0,2,2,1,1,1,1,1,1,1,2,2,0,0, 0,0,2,2,1,1,1,1,1,1,2,2,0,0, 0,0,0,2,2,1,1,1,1,2,2,0,0,0, 0,0,0,0,2,2,1,1,2,2,0,0,0,0, 0,0,0,0,0,2,2,2,2,0,0,0,0,0, 0,0,0,0,0,0,2,2,0,0,0,0,0,0, 0,0,0,0,0,0,2,2,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0 ] },
+            npc_hauler: { width: 22, height: 20, pixels: [ 0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0, 0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0, 0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0, 0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0, 0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0, 0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0, 0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0, 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, 0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0, 0,0,2,2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,0,0, 0,0,0,2,2,1,1,1,1,1,1,1,1,1,1,1,1,2,2,0,0,0, 0,0,0,0,2,2,1,1,1,0,0,0,0,1,1,1,2,2,0,0,0,0, 0,0,0,0,0,2,2,1,0,0,0,0,0,0,1,2,2,0,0,0,0,0, 0,0,0,0,0,0,2,2,0,0,0,0,0,0,2,2,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 ] },
+            concord_ship: { width: 14, height: 18, pixels: [ 0,0,0,0,0,0,1,1,0,0,0,0,0,0, 0,0,0,0,0,1,1,1,1,0,0,0,0,0, 0,0,0,0,1,1,1,1,1,1,0,0,0,0, 0,0,0,1,1,1,3,3,1,1,1,0,0,0, 0,0,1,1,1,1,1,1,1,1,1,1,0,0, 0,1,1,1,1,1,1,1,1,1,1,1,1,0, 1,1,1,1,1,1,1,1,1,1,1,1,1,1, 1,1,1,1,1,1,1,1,1,1,1,1,1,1, 1,1,1,1,1,1,1,1,1,1,1,1,1,1, 0,2,1,1,1,1,1,1,1,1,1,1,2,0, 0,2,2,1,1,1,1,1,1,1,2,2,0,0, 0,0,2,2,1,1,1,1,1,1,2,2,0,0, 0,0,0,2,2,1,1,1,1,2,2,0,0,0, 0,0,0,0,2,2,1,1,2,2,0,0,0,0, 0,0,0,0,0,2,2,2,2,0,0,0,0,0, 0,0,0,0,0,0,2,2,0,0,0,0,0,0, 0,0,0,0,0,0,2,2,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0 ] }
+        };
+        function createPixelSprite(data, colorMap) { const canvas = document.createElement('canvas'); canvas.width = data.width; canvas.height = data.height; const ctx = canvas.getContext('2d'); if (!data.pixels || data.pixels.length === 0) return canvas; const imgData = ctx.createImageData(data.width, data.height); const pixels = imgData.data; for (let i = 0; i < data.pixels.length; i++) { const colorIndex = data.pixels[i]; let color = [0, 0, 0, 0]; if (colorIndex === 1) color = hexToRgba(colorMap.main); else if (colorIndex === 2) color = hexToRgba(colorMap.trim); else if (colorIndex === 3) color = hexToRgba(colorMap.cockpit || colorMap.lights_off); else if (colorIndex === 4) color = hexToRgba(colorMap.thrust); const pixelIndex = i * 4; pixels[pixelIndex] = color[0]; pixels[pixelIndex + 1] = color[1]; pixels[pixelIndex + 2] = color[2]; pixels[pixelIndex + 3] = color[3]; } ctx.putImageData(imgData, 0, 0); return canvas; }
+        function hexToRgba(hex, alpha = 255) { if (!hex) return [0,0,0,0]; const r = parseInt(hex.slice(1, 3), 16); const g = parseInt(hex.slice(3, 5), 16); const b = parseInt(hex.slice(5, 7), 16); return [r, g, b, alpha]; }
+        function generateAsteroidPixels(width, height, colors) { let pixels = []; const centerX = width / 2; const centerY = height / 2; const baseRadius = Math.min(width, height) / 2 * 0.8; for (let y = 0; y < height; y++) { for (let x = 0; x < width; x++) { const dx = x - centerX; const dy = y - centerY; const dist = Math.sqrt(dx * dx + dy * dy); const angle = Math.atan2(dy, dx); const wobble = Math.sin(angle * 5 + x * 0.2 + y * 0.1) * baseRadius * 0.2; const currentRadius = baseRadius + wobble; if (dist < currentRadius) { const noise = Math.random(); if (noise < 0.6) pixels.push(1); else if (noise < 0.85) pixels.push(2); else pixels.push(3); } else { pixels.push(0); } } } return { width, height, pixels }; }
+
+        // --- Game State Variables ---
+        let player = { x: SCREEN_WIDTH / 4, y: SCREEN_HEIGHT / 2, vx: 0, vy: 0, angle: -Math.PI / 2, cargo: 0, isMining: false, miningTarget: null, isThrusting: false, sprite: null, thrustSprite: null,
+                       activeItem: null, // BLACK MARKET CHANGE: To store the item ID
+                       nohKredits: 0      // BLACK MARKET CHANGE: To store leftover credits (optional use later)
+                      };
+        let station = { x: SCREEN_WIDTH / 4, y: SCREEN_HEIGHT / 2, radius: 50, sprite: null, lightBlinkTimer: 0, lightState: false };
+        let asteroids = []; let stars = []; let particles = []; let npcs = [];
+        let interceptedMessages = []; let isk = 0; let plexTimeRemaining = PLEX_TIME_INITIAL;
+        let isGameOver = false; let concordShip = null; let concordState = 'idle'; let gameOverTimer = 0;
+        let keys = {}; let lastTime = 0; let messageTimeout = null; let assetsLoaded = false; let lastLocalChatTime = 0;
+        let plexWarningShown = { warning: false, critical: false };
+        let isFleetBattleActive = false; let fleetBattlePhase = 'idle'; let fleetBattleTimer = 0; let fleetBattleCooldown = 30; let fleetBattleLocation = { x: 0, y: 0, radius: 0 }; let distantShips = []; let distantEffects = []; let tidiFactor = 1.0; let tidiTargetFactor = 1.0;
+        let isCynoActive = false; let cynoPhase = 'idle'; let cynoTimer = 0; let cynoLocation = { x: 0, y: 0, currentRadius: 0, alpha: 1.0, lightningBolts: [] }; let cynoCooldown = 45; let bigShip = null;
+        let isDocked = false; // BLACK MARKET CHANGE: Track docking state
+
+        // --- Helper Functions ---
+        function distance(x1, y1, x2, y2) { const dx = x1 - x2; const dy = y1 - y2; return Math.sqrt(dx * dx + dy * dy); }
+        function showMessage(text, duration = 2000, isChat = false) { if (isGameOver && concordState !== 'finished' && !text.toLowerCase().includes('concord')) return; messageEl.textContent = text; messageEl.style.display = 'block'; if (isChat) { messageEl.classList.add('local-chat'); } else { messageEl.classList.remove('local-chat'); } if (messageTimeout) clearTimeout(messageTimeout); messageTimeout = setTimeout(() => { messageEl.style.display = 'none'; messageEl.classList.remove('local-chat'); }, duration); }
+        function createParticles(x, y, count, colorList, speedRange, lifeRange) { for (let i = 0; i < count; i++) { const angle = Math.random() * Math.PI * 2; const speed = speedRange[0] + Math.random() * (speedRange[1] - speedRange[0]); particles.push({ x: x, y: y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: lifeRange[0] + Math.random() * (lifeRange[1] - lifeRange[0]), color: colorList[Math.floor(Math.random() * colorList.length)], size: 1 + Math.random() * 2 }); } }
+        function updateTickerDisplay() { if (!tickerEl) return; const title = tickerEl.querySelector('#ticker-title'); tickerEl.innerHTML = ''; if (title) tickerEl.appendChild(title); interceptedMessages.forEach(msg => { const p = document.createElement('p'); p.textContent = msg; tickerEl.appendChild(p); }); }
+        function updatePlexBar() { const plexPercent = Math.max(0, plexTimeRemaining / PLEX_TIME_INITIAL) * 100; plexBarFillEl.style.width = `${plexPercent}%`; plexBarContainerEl.classList.remove('warning', 'critical'); plexWarningShown.warning = false; plexWarningShown.critical = false; if (plexPercent <= PLEX_CRITICAL_THRESHOLD * 100) { plexBarContainerEl.classList.add('critical'); plexWarningShown.critical = true; } else if (plexPercent <= PLEX_WARNING_THRESHOLD * 100) { plexBarContainerEl.classList.add('warning'); plexWarningShown.warning = true; } }
+
+        // --- Initialization Functions ---
+        function spawnNPC() { /* ... Function remains the same ... */ const type = Math.random() < 0.5 ? 'frigate' : 'hauler'; let sprite, name, colors; let npcData; if (type === 'frigate') { sprite = sprites.npc_frigate; colors = NPC_FRIGATE_COLORS; name = "Frigate Pilot"; npcData = spriteData.npc_frigate; } else { sprite = sprites.npc_hauler; colors = NPC_HAULER_COLORS; name = "Hauler Captain"; npcData = spriteData.npc_hauler; } let x, y, angle; const edge = Math.floor(Math.random() * 4); switch (edge) { case 0: x = Math.random() * SCREEN_WIDTH; y = -(npcData.height || 20); angle = Math.random() * Math.PI * 0.8 + Math.PI * 0.1; break; case 1: x = SCREEN_WIDTH + (npcData.width || 20); y = Math.random() * SCREEN_HEIGHT; angle = Math.random() * Math.PI * 0.8 + Math.PI * 0.6; break; case 2: x = Math.random() * SCREEN_WIDTH; y = SCREEN_HEIGHT + (npcData.height || 20); angle = Math.random() * Math.PI * 0.8 + Math.PI * 1.1; break; case 3: x = -(npcData.width || 20); y = Math.random() * SCREEN_HEIGHT; angle = Math.random() * Math.PI * 0.8 - Math.PI * 0.4; break; } const speed = NPC_SPEED_MIN + Math.random() * (NPC_SPEED_MAX - NPC_SPEED_MIN); return { x: x, y: y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, angle: angle, type: type, sprite: sprite, name: name, width: npcData.width, height: npcData.height }; }
+        function loadAssets() { /* ... Function remains the same ... */ console.log("Loading assets..."); sprites.player = createPixelSprite(spriteData.player, PLAYER_COLORS); let thrustData = JSON.parse(JSON.stringify(spriteData.player)); thrustData.pixels[11*16 + 6] = 4; thrustData.pixels[11*16 + 7] = 4; thrustData.pixels[11*16 + 8] = 4; thrustData.pixels[11*16 + 9] = 4; sprites.player_thrust = createPixelSprite(thrustData, PLAYER_COLORS); player.sprite = sprites.player; player.thrustSprite = sprites.player_thrust; const stationCanvas = document.createElement('canvas'); const sSize = 64; stationCanvas.width = sSize; stationCanvas.height = sSize; const sCtx = stationCanvas.getContext('2d'); sCtx.fillStyle = STATION_COLORS.main; sCtx.strokeStyle = STATION_COLORS.trim; sCtx.lineWidth = 2; sCtx.fillRect(sSize*0.4, 0, sSize*0.2, sSize); sCtx.fillRect(0, sSize*0.4, sSize, sSize*0.2); sCtx.strokeRect(sSize*0.4, 0, sSize*0.2, sSize); sCtx.strokeRect(0, sSize*0.4, sSize, sSize*0.2); sCtx.fillStyle = STATION_COLORS.trim; sCtx.fillRect(sSize*0.35, sSize*0.35, sSize*0.3, sSize*0.3); sprites.station = stationCanvas; station.sprite = sprites.station; station.radius = sSize * 0.4; asteroids = []; for (let i = 0; i < ASTEROID_COUNT; i++) { const angle = Math.random() * Math.PI * 2; const dist = ASTEROID_BELT_RADIUS * (0.5 + Math.random() * 0.5); const x = ASTEROID_BELT_CENTER_X + Math.cos(angle) * dist; const y = ASTEROID_BELT_CENTER_Y + Math.sin(angle) * dist; const size = 18 + Math.floor(Math.random() * 15); const resources = Math.floor(size * size / 10 + Math.random() * 50); const asteroidPixelData = generateAsteroidPixels(size, size, ASTEROID_COLORS); const asteroidSprite = createPixelSprite(asteroidPixelData, { main: ASTEROID_COLORS.main, trim: ASTEROID_COLORS.dark, cockpit: ASTEROID_COLORS.light }); asteroids.push({ x: x, y: y, radius: size / 2, resources: resources, initialResources: resources, sprite: asteroidSprite, angle: Math.random() * Math.PI * 2, wobbleOffset: Math.random() * Math.PI * 2 }); } stars = []; for (let i = 0; i < STAR_COUNT; i++) { stars.push({ x: Math.random() * SCREEN_WIDTH, y: Math.random() * SCREEN_HEIGHT, size: Math.random() * 1.5 + 0.5, brightness: 0.5 + Math.random() * 0.5 }); } sprites.npc_frigate = createPixelSprite(spriteData.npc_frigate, NPC_FRIGATE_COLORS); sprites.npc_hauler = createPixelSprite(spriteData.npc_hauler, NPC_HAULER_COLORS); sprites.concord_ship = createPixelSprite(spriteData.concord_ship, CONCORD_COLORS); npcs = []; for (let i = 0; i < NPC_COUNT; i++) { npcs.push(spawnNPC()); } updateTickerDisplay(); updatePlexBar(); console.log("Assets loaded!"); assetsLoaded = true; }
+        function startGameover() { /* ... Function remains the same ... */ if (isGameOver) return; console.log("GAME OVER: PLEX Expired!"); isGameOver = true; isCynoActive = false; concordState = 'approaching'; const spawnEdge = Math.floor(Math.random() * 4); let sx, sy; const buffer = 50; if (spawnEdge === 0) { sx = Math.random() * SCREEN_WIDTH; sy = -buffer; } else if (spawnEdge === 1) { sx = SCREEN_WIDTH + buffer; sy = Math.random() * SCREEN_HEIGHT; } else if (spawnEdge === 2) { sx = Math.random() * SCREEN_WIDTH; sy = SCREEN_HEIGHT + buffer; } else { sx = -buffer; sy = Math.random() * SCREEN_HEIGHT; } const angleToPlayer = Math.atan2(player.y - sy, player.x - sx); concordShip = { x: sx, y: sy, vx: Math.cos(angleToPlayer) * CONCORD_SPEED, vy: Math.sin(angleToPlayer) * CONCORD_SPEED, angle: angleToPlayer, sprite: sprites.concord_ship, width: spriteData.concord_ship.width, height: spriteData.concord_ship.height }; messageEl.classList.remove('local-chat'); showMessage("[CONCORD Dispatch]: Capsuleer license expired. Stand down.", 10000); }
+        function resetGame() { /* ... Function remains the same ... */
+             isk = 0; plexTimeRemaining = PLEX_TIME_INITIAL;
+             player.x = station.x + station.radius + (player.sprite ? player.sprite.width : 16); player.y = station.y;
+             player.vx = 0; player.vy = 0; player.angle = -Math.PI / 2; player.cargo = 0;
+             player.isMining = false; player.miningTarget = null;
+             player.activeItem = null; player.nohKredits = 0; // BLACK MARKET CHANGE: Reset item/kredits
+             applyItemEffects(); // Re-apply potential base stats if items modified them
+
+             asteroids.forEach(a => a.resources = a.initialResources); particles = []; interceptedMessages = []; isGameOver = false; concordShip = null; concordState = 'idle'; gameOverTimer = 0; keys = {}; plexWarningShown = { warning: false, critical: false }; isFleetBattleActive = false; fleetBattlePhase = 'idle'; distantShips = []; distantEffects = []; tidiFactor = 1.0; tidiTargetFactor = 1.0; fleetBattleCooldown = FLEET_BATTLE_MIN_COOLDOWN + Math.random() * (FLEET_BATTLE_MAX_COOLDOWN - FLEET_BATTLE_MIN_COOLDOWN); isCynoActive = false; cynoPhase = 'idle'; cynoTimer = 0; bigShip = null; cynoLocation.lightningBolts = []; cynoCooldown = CYNO_MIN_COOLDOWN + Math.random() * (CYNO_MAX_COOLDOWN - CYNO_MIN_COOLDOWN);
+             isDocked = false; blackMarketButtonEl.style.display = 'none'; // BLACK MARKET CHANGE: Hide button
+
+             document.body.classList.remove('tidi-active'); gameOverOverlayEl.style.display = 'none'; iskEl.textContent = isk; updatePlexBar(); updateTickerDisplay(); showMessage("Clone Activated. Welcome back, Capsuleer.", 3000);
+        }
+
+        // --- Fleet Battle Functions ---
+        function startFleetBattle() { /* ... Function remains the same ... */ if (isFleetBattleActive || isCynoActive) return; console.log("Fleet Battle Starting..."); isFleetBattleActive = true; fleetBattlePhase = 'starting'; tidiFactor = 1.0; tidiTargetFactor = 1.0; document.body.classList.remove('tidi-active'); const angle = Math.random() * Math.PI * 2; const dist = Math.max(SCREEN_WIDTH, SCREEN_HEIGHT) * 0.6; fleetBattleLocation.x = SCREEN_WIDTH / 2 + Math.cos(angle) * dist; fleetBattleLocation.y = SCREEN_HEIGHT / 2 + Math.sin(angle) * dist; fleetBattleLocation.radius = DISTANT_BATTLE_RADIUS; distantShips = []; distantEffects = []; const faction1Pos = { x: fleetBattleLocation.x - fleetBattleLocation.radius / 3, y: fleetBattleLocation.y }; const faction2Pos = { x: fleetBattleLocation.x + fleetBattleLocation.radius / 3, y: fleetBattleLocation.y }; for (let i = 0; i < DISTANT_SHIP_COUNT; i++) { const faction = (i < DISTANT_SHIP_COUNT / 2) ? 0 : 1; const clusterCenter = faction === 0 ? faction1Pos : faction2Pos; const spawnRadius = fleetBattleLocation.radius / 2.5; distantShips.push({ x: clusterCenter.x + (Math.random() - 0.5) * spawnRadius, y: clusterCenter.y + (Math.random() - 0.5) * spawnRadius, vx: (Math.random() - 0.5) * DISTANT_SHIP_SPEED, vy: (Math.random() - 0.5) * DISTANT_SHIP_SPEED, faction: faction, color: faction === 0 ? '#FF8888' : '#8888FF' }); } fleetBattleTimer = BATTLE_VISUAL_DURATION; fleetBattlePhase = 'ongoing'; }
+        function updateFleetBattle(dt) { /* ... Function remains the same ... */ if (!isFleetBattleActive) return; distantShips.forEach(ship => { ship.x += ship.vx * dt; ship.y += ship.vy * dt; }); distantEffects = distantEffects.filter(effect => { effect.life -= dt; return effect.life > 0; }); switch (fleetBattlePhase) { case 'ongoing': fleetBattleTimer -= dt; if (Math.random() < 0.3) addDistantEffect('beam'); if (Math.random() < 0.1) addDistantEffect('explosion'); if (fleetBattleTimer <= 0) { fleetBattlePhase = 'tidi_engaged'; fleetBattleTimer = TIDI_ENGAGE_DURATION; tidiTargetFactor = TIDI_FACTOR_LOW; showMessage(`Traffic Advisory: Time Dilation Engaged. TiDi Factor: ${Math.round(tidiTargetFactor * 100)}%`, 5000); document.body.classList.add('tidi-active'); } break; case 'tidi_engaged': fleetBattleTimer -= dt; if (Math.random() < 0.05) addDistantEffect('beam'); if (Math.random() < 0.01) addDistantEffect('explosion'); if (fleetBattleTimer <= 0) { fleetBattlePhase = 'tidi_resolving'; fleetBattleTimer = TIDI_RESOLVE_DELAY; tidiTargetFactor = TIDI_FACTOR_RECOVERED; showMessage(`System Status: TiDi Resolved. Factor: ${Math.round(tidiTargetFactor * 100)}%`, 5000); document.body.classList.remove('tidi-active'); } break; case 'tidi_resolving': fleetBattleTimer -= dt; if (Math.random() < 0.02) addDistantEffect('beam'); if (fleetBattleTimer <= 0) { fleetBattlePhase = 'fading'; fleetBattleTimer = 5; } break; case 'fading': fleetBattleTimer -= dt; if (fleetBattleTimer <= 0) { endFleetBattle(); } break; } tidiFactor = tidiTargetFactor; }
+        function addDistantEffect(type) { /* ... Function remains the same ... */ if (distantShips.length < 2) return; if (type === 'beam') { const ship1 = distantShips[Math.floor(Math.random() * distantShips.length)]; let ship2 = distantShips[Math.floor(Math.random() * distantShips.length)]; let attempts = 0; while (ship2.faction === ship1.faction && attempts < 10) { ship2 = distantShips[Math.floor(Math.random() * distantShips.length)]; attempts++; } if (ship1 === ship2) return; distantEffects.push({ type: 'beam', x1: ship1.x, y1: ship1.y, x2: ship2.x, y2: ship2.y, life: 0.2 + Math.random() * 0.3, color: Math.random() < 0.5 ? '#FF0000' : '#00FFFF' }); } else if (type === 'explosion') { const ship = distantShips[Math.floor(Math.random() * distantShips.length)]; distantEffects.push({ type: 'explosion', x: ship.x, y: ship.y, life: 0.5 + Math.random() * 0.5, radius: 2 + Math.random() * 4, color: '#FFA500' }); } }
+        function endFleetBattle() { /* ... Function remains the same ... */ console.log("Fleet Battle Ended."); isFleetBattleActive = false; fleetBattlePhase = 'idle'; distantShips = []; distantEffects = []; tidiFactor = 1.0; tidiTargetFactor = 1.0; document.body.classList.remove('tidi-active'); fleetBattleCooldown = FLEET_BATTLE_MIN_COOLDOWN + Math.random() * (FLEET_BATTLE_MAX_COOLDOWN - FLEET_BATTLE_MIN_COOLDOWN); }
+
+        // --- Cyno Functions ---
+        function startCynoSequence() { /* ... Function remains the same ... */ if (isCynoActive || isFleetBattleActive || isGameOver) return; console.log("Starting Cyno Sequence"); isCynoActive = true; cynoPhase = 'forming'; cynoTimer = CYNO_FORM_DURATION; const angle = Math.random() * Math.PI * 2; const dist = 150 + Math.random() * 150; cynoLocation.x = player.x + Math.cos(angle) * dist; cynoLocation.y = player.y + Math.sin(angle) * dist; cynoLocation.x = Math.max(CYNO_MAX_RADIUS, Math.min(SCREEN_WIDTH - CYNO_MAX_RADIUS, cynoLocation.x)); cynoLocation.y = Math.max(CYNO_MAX_RADIUS, Math.min(SCREEN_HEIGHT - CYNO_MAX_RADIUS, cynoLocation.y)); cynoLocation.currentRadius = 0; cynoLocation.alpha = 0; cynoLocation.lightningBolts = []; bigShip = null; showMessage("Cynosural Field Generating...", CYNO_FORM_DURATION * 1000); cynoCooldown = CYNO_MIN_COOLDOWN + Math.random() * (CYNO_MAX_COOLDOWN - CYNO_MIN_COOLDOWN); }
+        function updateCynoSequence(dt) { /* ... Function remains the same ... */ if (!isCynoActive) return; cynoTimer -= dt; cynoLocation.lightningBolts = cynoLocation.lightningBolts.filter(bolt => { bolt.life -= dt; return bolt.life > 0; }); switch (cynoPhase) { case 'forming': const formProgress = Math.max(0, CYNO_FORM_DURATION - cynoTimer) / CYNO_FORM_DURATION; cynoLocation.currentRadius = CYNO_MAX_RADIUS * formProgress; cynoLocation.alpha = formProgress; if (cynoTimer <= 0) { cynoPhase = 'flash_in'; cynoTimer = CYNO_FLASH_DURATION; cynoLocation.alpha = 1.0; } break; case 'flash_in': if (cynoTimer <= 0) { cynoPhase = 'pulsing'; cynoTimer = CYNO_PULSE_DURATION; cynoLocation.currentRadius = CYNO_MAX_RADIUS; cynoLocation.alpha = 1.0; spawnBigShip(); showMessage("Jump Drive Active!", CYNO_PULSE_DURATION * 1000); } break; case 'pulsing': if (Math.random() < CYNO_LIGHTNING_CHANCE * dt * 20) { const angle = Math.random() * Math.PI * 2; const endRadius = cynoLocation.currentRadius * (0.8 + Math.random() * 0.4); cynoLocation.lightningBolts.push({ angle: angle, endRadius: endRadius, life: CYNO_LIGHTNING_DURATION }); } if (cynoTimer <= 0) { cynoPhase = 'flash_out'; cynoTimer = CYNO_FLASH_DURATION; cynoLocation.alpha = 1.0; cynoLocation.lightningBolts = []; } break; case 'flash_out': if (cynoTimer <= 0) { cynoPhase = 'fading'; cynoTimer = CYNO_FADE_DURATION; } break; case 'fading': const fadeProgress = Math.max(0, cynoTimer / CYNO_FADE_DURATION); cynoLocation.alpha = fadeProgress; cynoLocation.currentRadius = CYNO_MAX_RADIUS * fadeProgress; if (cynoTimer <= 0) { isCynoActive = false; cynoPhase = 'idle'; console.log("Cyno Sequence Ended."); } break; } }
+        function spawnBigShip() { /* ... Function remains the same ... */ if (bigShip) return; console.log("Spawning Big Ship"); const sizeW = BIG_SHIP_MIN_SIZE.w + Math.random() * (BIG_SHIP_MAX_SIZE.w - BIG_SHIP_MIN_SIZE.w); const sizeH = BIG_SHIP_MIN_SIZE.h + Math.random() * (BIG_SHIP_MAX_SIZE.h - BIG_SHIP_MIN_SIZE.h); const speed = BIG_SHIP_SPEED_MIN + Math.random() * (BIG_SHIP_SPEED_MAX - BIG_SHIP_SPEED_MIN); const angleToCenter = Math.atan2(SCREEN_HEIGHT / 2 - cynoLocation.y, SCREEN_WIDTH / 2 - cynoLocation.x); const angle = angleToCenter + Math.PI + (Math.random() - 0.5) * Math.PI * 0.5; bigShip = { x: cynoLocation.x, y: cynoLocation.y, width: sizeW, height: sizeH, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, angle: angle }; createParticles(cynoLocation.x, cynoLocation.y, 50, ['#FFFFFF', '#DDDDFF', '#AAAAFF'], [40, 100], [0.5, 1.5]); }
+        function updateBigShip(dt) { /* ... Function remains the same ... */ if (!bigShip) return; bigShip.x += bigShip.vx * dt; bigShip.y += bigShip.vy * dt; const despawnEdge = BIG_SHIP_DESPAWN_BUFFER + Math.max(bigShip.width || 0, bigShip.height || 0); if (bigShip.x < -despawnEdge || bigShip.x > SCREEN_WIDTH + despawnEdge || bigShip.y < -despawnEdge || bigShip.y > SCREEN_HEIGHT + despawnEdge) { console.log("Big Ship despawned."); bigShip = null; } }
+
+        // --- Drawing Functions ---
+        function drawStars() { /* ... Function remains the same ... */ stars.forEach(star => { ctx.fillStyle = `rgba(255, 255, 255, ${star.brightness})`; ctx.fillRect(star.x - star.size / 2, star.y - star.size / 2, star.size, star.size); }); }
+        function drawPlayer() { /* ... Function remains the same ... */ if (isGameOver && concordState !== 'idle') return; const currentSprite = player.isThrusting ? player.thrustSprite : player.sprite; if (!currentSprite) return; ctx.save(); ctx.translate(player.x, player.y); ctx.rotate(player.angle + Math.PI / 2); ctx.drawImage(currentSprite, -currentSprite.width / 2, -currentSprite.height / 2); ctx.restore(); }
+        function drawStation(dt) { /* ... Function remains the same ... */ if (!station.sprite) return; station.lightBlinkTimer += dt; if (station.lightBlinkTimer > 0.5) { station.lightState = !station.lightState; station.lightBlinkTimer = 0; } ctx.save(); ctx.translate(station.x, station.y); ctx.drawImage(station.sprite, -station.sprite.width / 2, -station.sprite.height / 2); const lightSize = 4; ctx.fillStyle = station.lightState ? STATION_COLORS.lights_on : STATION_COLORS.lights_off; ctx.fillRect(-station.sprite.width*0.1 - lightSize/2, -station.sprite.height*0.45 - lightSize/2, lightSize, lightSize); ctx.fillRect(station.sprite.width*0.1 - lightSize/2, -station.sprite.height*0.45 - lightSize/2, lightSize, lightSize); ctx.fillRect(-station.sprite.width*0.45 - lightSize/2, -station.sprite.height*0.1 - lightSize/2, lightSize, lightSize); ctx.fillRect(station.sprite.width*0.45 - lightSize/2, station.sprite.height*0.1 - lightSize/2, lightSize, lightSize); ctx.restore(); ctx.fillStyle = 'white'; ctx.font = '12px monospace'; ctx.textAlign = 'center'; ctx.fillText('Jita 4-4', station.x, station.y + station.radius + 15); }
+        function drawAsteroids(dt) { /* ... Function remains the same ... */ asteroids.forEach(asteroid => { if (!asteroid.sprite) return; ctx.save(); ctx.globalAlpha = asteroid.resources <= 0 ? 0.3 : 1.0; const wobble = Math.sin(Date.now() * 0.001 * ASTEROID_WOBBLE_SPEED + asteroid.wobbleOffset) * ASTEROID_WOBBLE_AMOUNT; ctx.translate(asteroid.x, asteroid.y); ctx.rotate(asteroid.angle + wobble); ctx.drawImage(asteroid.sprite, -asteroid.sprite.width / 2, -asteroid.sprite.height / 2); ctx.restore(); ctx.globalAlpha = 1.0; }); }
+        function drawMiningBeam() { /* ... Function remains the same ... */ if (isGameOver) return; if (player.isMining && player.miningTarget) { const noseOffsetX = Math.cos(player.angle) * (player.sprite ? player.sprite.width * 0.6 : 8); const noseOffsetY = Math.sin(player.angle) * (player.sprite ? player.sprite.width * 0.6 : 8); const startX = player.x + noseOffsetX; const startY = player.y + noseOffsetY; const endX = player.miningTarget.x; const endY = player.miningTarget.y; const pulse = (Math.sin(Date.now() * 0.01) + 1) / 2; const gradient = ctx.createLinearGradient(startX, startY, endX, endY); gradient.addColorStop(0, MINING_BEAM_COLOR_START); gradient.addColorStop(0.5 + pulse * 0.3, MINING_BEAM_COLOR_END); gradient.addColorStop(1, 'rgba(255,0,0,0)'); ctx.strokeStyle = gradient; ctx.lineWidth = 2 + pulse * 2; ctx.beginPath(); ctx.moveTo(startX, startY); ctx.lineTo(endX, endY); ctx.stroke(); } }
+        function drawParticles(dt) { /* ... Function remains the same ... */ for (let i = particles.length - 1; i >= 0; i--) { const p = particles[i]; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; if (p.life <= 0) { particles.splice(i, 1); } else { ctx.fillStyle = p.color; ctx.globalAlpha = Math.max(0, p.life / 0.5); ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size); } } ctx.globalAlpha = 1.0; }
+        function drawNPCs(dt) { /* ... Function remains the same ... */ npcs.forEach(npc => { if (!npc.sprite) return; ctx.save(); ctx.translate(npc.x, npc.y); ctx.rotate(npc.angle + Math.PI / 2); ctx.drawImage(npc.sprite, -npc.width / 2, -npc.height / 2); ctx.restore(); }); }
+        function drawConcordShip() { /* ... Function remains the same ... */ if (!isGameOver || !concordShip || !concordShip.sprite) return; ctx.save(); ctx.translate(concordShip.x, concordShip.y); ctx.rotate(concordShip.angle + Math.PI / 2); ctx.drawImage(concordShip.sprite, -concordShip.width / 2, -concordShip.height / 2); ctx.restore(); }
+        function drawDistantBattle(ctx) { /* ... Function remains the same ... */ if (!isFleetBattleActive) return; ctx.save(); ctx.lineWidth = 1; distantEffects.forEach(effect => { ctx.globalAlpha = Math.max(0, effect.life / 0.5); if (effect.type === 'beam') { ctx.strokeStyle = effect.color; ctx.beginPath(); ctx.moveTo(effect.x1, effect.y1); ctx.lineTo(effect.x2, effect.y2); ctx.stroke(); } else if (effect.type === 'explosion') { ctx.fillStyle = effect.color; ctx.beginPath(); const currentRadius = effect.radius * (1 - Math.abs(effect.life - 0.5) / 0.5); ctx.arc(effect.x, effect.y, Math.max(1, currentRadius), 0, Math.PI * 2); ctx.fill(); } }); ctx.restore(); ctx.save(); distantShips.forEach(ship => { ctx.fillStyle = ship.color; ctx.fillRect(ship.x - 1, ship.y - 1, 2, 2); }); ctx.restore(); }
+        function drawCynoField(ctx) { /* ... Function remains the same ... */ if (!isCynoActive || cynoLocation.alpha <= 0) return; ctx.save(); const x = cynoLocation.x; const y = cynoLocation.y; let baseAlpha = cynoLocation.alpha; let effectRadius = cynoLocation.currentRadius; if (cynoPhase === 'flash_in' || cynoPhase === 'flash_out') { const flashProgress = cynoTimer / CYNO_FLASH_DURATION; const flashIntensity = 1.0 - Math.abs(flashProgress - 0.5) * 2; baseAlpha = 1.0; ctx.fillStyle = `rgba(255, 255, 255, ${flashIntensity * 0.9})`; ctx.beginPath(); ctx.arc(x, y, CYNO_MAX_RADIUS * (1 + flashIntensity * 0.3), 0, Math.PI * 2); ctx.fill(); } if (cynoPhase === 'pulsing') { const pulseFactor = (Math.sin(Date.now() * 0.015) + 1) / 2; baseAlpha = 0.8 + pulseFactor * 0.2; effectRadius = CYNO_MAX_RADIUS * (0.95 + pulseFactor * 0.1); } ctx.globalAlpha = baseAlpha; ctx.fillStyle = CYNO_COLORS.edge; ctx.beginPath(); ctx.arc(x, y, effectRadius, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = CYNO_COLORS.middle; ctx.beginPath(); ctx.arc(x, y, effectRadius * 0.6, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = CYNO_COLORS.center; ctx.beginPath(); ctx.arc(x, y, effectRadius * 0.2, 0, Math.PI * 2); ctx.fill(); if (cynoPhase === 'pulsing' && cynoLocation.lightningBolts.length > 0) { ctx.strokeStyle = CYNO_COLORS.lightning; ctx.lineWidth = 1.5; cynoLocation.lightningBolts.forEach(bolt => { ctx.globalAlpha = baseAlpha * (bolt.life / CYNO_LIGHTNING_DURATION); const endX = x + Math.cos(bolt.angle) * bolt.endRadius; const endY = y + Math.sin(bolt.angle) * bolt.endRadius; const midX = x + Math.cos(bolt.angle) * bolt.endRadius * 0.5 + (Math.random() - 0.5) * 10; const midY = y + Math.sin(bolt.angle) * bolt.endRadius * 0.5 + (Math.random() - 0.5) * 10; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(midX, midY); ctx.lineTo(endX, endY); ctx.stroke(); }); } ctx.restore(); }
+        function drawBigShip(ctx) { /* ... Function remains the same ... */ if (!bigShip) return; ctx.save(); ctx.translate(bigShip.x, bigShip.y); ctx.rotate(bigShip.angle + Math.PI / 2); ctx.fillStyle = BIG_SHIP_COLORS.hull; ctx.fillRect(-bigShip.width / 2, -bigShip.height / 2, bigShip.width, bigShip.height); ctx.strokeStyle = BIG_SHIP_COLORS.lines; ctx.lineWidth = 1; ctx.strokeRect(-bigShip.width / 2, -bigShip.height / 2, bigShip.width, bigShip.height); ctx.beginPath(); ctx.moveTo(0, -bigShip.height / 2); ctx.lineTo(0, bigShip.height / 2); ctx.stroke(); ctx.beginPath(); ctx.moveTo(-bigShip.width * 0.4, -bigShip.height * 0.3); ctx.lineTo(bigShip.width * 0.4, -bigShip.height * 0.3); ctx.stroke(); ctx.fillStyle = BIG_SHIP_COLORS.lights; ctx.fillRect(-bigShip.width * 0.4, bigShip.height * 0.4, 4, 4); ctx.fillRect(bigShip.width * 0.4 - 4, bigShip.height * 0.4, 4, 4); ctx.fillRect(-2, -bigShip.height * 0.45, 4, 2); ctx.fillStyle = BIG_SHIP_COLORS.engine; const engineGlow = (Math.sin(Date.now()*0.005) + 1) * 3; ctx.fillRect(-bigShip.width * 0.2, bigShip.height * 0.5 - engineGlow, bigShip.width * 0.4, engineGlow); ctx.restore(); }
+
+        // --- Game Logic (Update) ---
+        function handleInput(dt) { /* ... Movement and other keys remain the same ... */
+             if (isGameOver) { if (keys['enter']) { resetGame(); keys['enter'] = false; } return; }
+             player.isThrusting = false;
+             if (keys['a'] || keys['arrowleft']) player.angle -= PLAYER_TURN_RATE * dt;
+             if (keys['d'] || keys['arrowright']) player.angle += PLAYER_TURN_RATE * dt;
+             if (keys['w'] || keys['arrowup']) { player.vx += Math.cos(player.angle) * PLAYER_THRUST_POWER * dt; player.vy += Math.sin(player.angle) * PLAYER_THRUST_POWER * dt; player.isThrusting = true; }
+             if (keys['m']) { if (!player.isMining) { let closestAsteroid = null; let minDist = MINING_RANGE; asteroids.forEach(asteroid => { if (asteroid.resources > 0) { const d = distance(player.x, player.y, asteroid.x, asteroid.y); if (d < minDist + asteroid.radius) { minDist = d; closestAsteroid = asteroid; } } }); if (closestAsteroid && player.cargo < PLAYER_MAX_CARGO) { if (distance(player.x, player.y, closestAsteroid.x, closestAsteroid.y) < MINING_RANGE + closestAsteroid.radius) { player.isMining = true; player.miningTarget = closestAsteroid; } else { showMessage("Veldspar too far.", 1500); } } else if (player.cargo >= PLAYER_MAX_CARGO) { showMessage("Cargo hold is full!", 1500); } else if (!closestAsteroid) { showMessage("No Veldspar in range.", 1500); } } keys['m'] = false; }
+             if (keys['l']) { const now = performance.now(); if (now - lastLocalChatTime > LOCAL_CHAT_COOLDOWN) { let closestNPC = null; let minDist = LOCAL_CHAT_RANGE; npcs.forEach(npc => { const d = distance(player.x, player.y, npc.x, npc.y); if (d < minDist) { minDist = d; closestNPC = npc; } }); if (closestNPC) { const randomMsg = LOCAL_CHAT_MESSAGES[Math.floor(Math.random() * LOCAL_CHAT_MESSAGES.length)]; const formattedMsg = `[${closestNPC.name}]: ${randomMsg}`; showMessage(formattedMsg, LOCAL_CHAT_DURATION, true); lastLocalChatTime = now; interceptedMessages.unshift(formattedMsg); if (interceptedMessages.length > TICKER_MAX_MESSAGES) { interceptedMessages.pop(); } updateTickerDisplay(); } } keys['l'] = false; }
+             if (keys['p']) { if (isDocked) { if (isk >= PLEX_COST_ISK) { isk -= PLEX_COST_ISK; plexTimeRemaining += PLEX_TIME_VALUE; plexTimeRemaining = Math.min(plexTimeRemaining, PLEX_TIME_INITIAL); iskEl.textContent = Math.floor(isk); updatePlexBar(); showMessage(`PLEX Activated! License extended by ${PLEX_TIME_VALUE / 60} mins.`, 2500); plexWarningShown.warning = false; plexWarningShown.critical = false; } else { showMessage(`Insufficient ISK. Need ${PLEX_COST_ISK} ISK for PLEX.`, 2000); } } else { showMessage("Must be docked at Jita 4-4 to purchase PLEX.", 2000); } keys['p'] = false; }
+             if (keys['[']) { startCynoSequence(); keys['['] = false; }
+             if (keys[']']) { startFleetBattle(); keys[']'] = false; }
+        }
+        function updateGameOver(dt) { /* ... Function remains the same ... */ if (!isGameOver || !concordShip) return; if (concordState === 'approaching') { concordShip.x += concordShip.vx * dt; concordShip.y += concordShip.vy * dt; const playerPos = { x: player.x, y: player.y }; const distToConcord = distance(playerPos.x, playerPos.y, concordShip.x, concordShip.y); if (distToConcord < CONCORD_IMPOUND_RANGE) { concordState = 'impounding'; concordShip.vx = 0; concordShip.vy = 0; messageEl.classList.remove('local-chat'); showMessage("[CONCORD Enforcer]: Vessel remote operation protocols suspended. Impounding...", 10000); createParticles(player.x, player.y, 50, CONCORD_COLORS.trim === '#FFFFFF' ? ['#FFFFFF', '#DDDDFF', '#BBBBFF'] : [CONCORD_COLORS.trim, CONCORD_COLORS.cockpit], [30, 80], [0.5, 1.2]); gameOverTimer = CONCORD_FINISH_DELAY; } } else if (concordState === 'impounding') { gameOverTimer -= dt; if (gameOverTimer <= 0) { concordState = 'finished'; finalIskEl.textContent = Math.floor(isk); gameOverOverlayEl.style.display = 'flex'; if (messageTimeout) clearTimeout(messageTimeout); messageEl.style.display = 'none'; } } }
+
+        function update(dt) { // dt here is effectiveDeltaTime
+             if (!assetsLoaded) return;
+             if (isGameOver) { updateGameOver(dt); updateParticles(dt); updateBigShip(dt); return; }
+             const baseDt = dt / tidiFactor; // Apply TiDi if active
+
+             // Event Triggers & Updates (using baseDt for cooldowns, dt for simulation)
+             if (!isFleetBattleActive && !isCynoActive) { fleetBattleCooldown -= baseDt; if (fleetBattleCooldown <= 0 && Math.random() < FLEET_BATTLE_CHANCE_PER_SECOND * baseDt) { startFleetBattle(); } } else if (isFleetBattleActive) { updateFleetBattle(dt); }
+             if (!isCynoActive && !isFleetBattleActive) { cynoCooldown -= baseDt; if (cynoCooldown <= 0 && Math.random() < CYNO_CHANCE_PER_SECOND * baseDt) { startCynoSequence(); } }
+             if (isCynoActive) { updateCynoSequence(dt); }
+             updateBigShip(dt);
+
+             // Core Gameplay Updates (using baseDt for simulation time)
+             plexTimeRemaining -= baseDt;
+             updatePlexBar();
+             if (plexTimeRemaining <= 0 && !isGameOver) { startGameover(); return; }
+             const plexPercent = plexTimeRemaining / PLEX_TIME_INITIAL;
+             if (plexPercent <= PLEX_CRITICAL_THRESHOLD && !plexWarningShown.critical && !isGameOver) { showMessage("WARNING: Capsule license critically low! Immediate renewal required!", 4000); plexWarningShown.critical = true; } else if (plexPercent <= PLEX_WARNING_THRESHOLD && !plexWarningShown.warning && !isGameOver) { showMessage("Caution: Capsule license running low. Consider PLEX renewal.", 3500); plexWarningShown.warning = true; }
+
+             // Player Movement & Wrap (using dt for visuals)
+             player.vx *= (1 - PLAYER_FRICTION * dt); player.vy *= (1 - PLAYER_FRICTION * dt);
+             player.x += player.vx * dt; player.y += player.vy * dt;
+             if (player.sprite) { if (player.x < -player.sprite.width/2) player.x = SCREEN_WIDTH + player.sprite.width/2; if (player.x > SCREEN_WIDTH + player.sprite.width/2) player.x = -player.sprite.width/2; if (player.y < -player.sprite.height/2) player.y = SCREEN_HEIGHT + player.sprite.height/2; if (player.y > SCREEN_HEIGHT + player.sprite.height/2) player.y = -player.sprite.height/2; }
+
+             // Mining Logic (using baseDt for rate)
+             if (player.isMining) {
+                 if (!player.miningTarget || player.miningTarget.resources <= 0) { player.isMining = false; player.miningTarget = null; }
+                 else {
+                     const distToTarget = distance(player.x, player.y, player.miningTarget.x, player.miningTarget.y);
+                     const effectiveRange = MINING_RANGE + player.miningTarget.radius;
+                     if (distToTarget > effectiveRange * 1.05) { player.isMining = false; player.miningTarget = null; showMessage("Target out of range", 1500); }
+                     else if (player.cargo < PLAYER_MAX_CARGO) {
+                         const minedAmount = MINING_RATE * baseDt; const actualMined = Math.min(minedAmount, player.miningTarget.resources); const cargoSpace = PLAYER_MAX_CARGO - player.cargo; const actualStored = Math.min(actualMined, cargoSpace); player.miningTarget.resources -= actualStored; player.cargo += actualStored; cargoEl.textContent = Math.floor(player.cargo);
+                         if (player.cargo >= PLAYER_MAX_CARGO) { player.cargo = PLAYER_MAX_CARGO; player.isMining = false; showMessage("Cargo hold full!", 1500); }
+                         if (player.miningTarget.resources <= 0) { player.isMining = false; player.miningTarget = null; createParticles(player.miningTarget.x, player.miningTarget.y, 30, PARTICLE_COLORS, [20, 60], [0.3, 0.8]); }
+                     } else { player.isMining = false; }
+                 }
+             }
+
+             // Docking Logic & BLACK MARKET CHANGE: Show/Hide Button
+             const distToStation = distance(player.x, player.y, station.x, station.y);
+             const dockRadius = station.radius + (player.sprite ? player.sprite.width / 2 : 10) + STATION_DOCKING_RADIUS_BUFFER;
+             const currentlyDocked = distToStation < dockRadius;
+
+             if (currentlyDocked) {
+                 if (!isDocked) { // Just docked
+                    isDocked = true;
+                    console.log("Docked at Jita 4-4");
+                    // Sell cargo immediately on dock
+                    if (player.cargo > 0) {
+                        const cargoValue = Math.floor(player.cargo); const earnedISK = cargoValue * ISK_PER_VELDSPAR_UNIT; isk += earnedISK;
+                        showMessage(`Sold ${cargoValue} units of Veldspar for ${earnedISK} ISK.`, 2000);
+                        player.cargo = 0; iskEl.textContent = Math.floor(isk); cargoEl.textContent = '0';
+                    }
+                 }
+                 // Braking logic
+                 const dx = station.x - player.x; const dy = station.y - player.y; const dotProd = player.vx * dx + player.vy * dy;
+                 if (dotProd > 0) { player.vx *= (1 - PLAYER_FRICTION * dt * 5); player.vy *= (1 - PLAYER_FRICTION * dt * 5); }
+                 else { player.vx += dx * dt * 0.1; player.vy += dy * dt * 0.1; }
+
+                 // Show Black Market button if condition met
+                 if (isk >= BLACK_MARKET_ENTRY_ISK) {
+                     blackMarketButtonEl.style.display = 'block';
+                 } else {
+                     blackMarketButtonEl.style.display = 'none';
+                 }
+
+             } else { // Not docked
+                 if (isDocked) { // Just undocked
+                     isDocked = false;
+                     console.log("Undocked from Jita 4-4");
+                     blackMarketButtonEl.style.display = 'none'; // Hide button immediately on undock
+                 }
+             }
+
+             // Update NPCs (using dt for visuals)
+             for (let i = npcs.length - 1; i >= 0; i--) { const npc = npcs[i]; npc.x += npc.vx * dt; npc.y += npc.vy * dt; const despawnEdge = NPC_DESPAWN_BUFFER + Math.max(npc.width || 0, npc.height || 0); if (npc.x < -despawnEdge || npc.x > SCREEN_WIDTH + despawnEdge || npc.y < -despawnEdge || npc.y > SCREEN_HEIGHT + despawnEdge) { npcs.splice(i, 1); npcs.push(spawnNPC()); } }
+
+             // Update Particles (using dt for visuals)
+             updateParticles(dt);
+        }
+        function updateParticles(dt) { /* ... Function remains the same ... */ for (let i = particles.length - 1; i >= 0; i--) { const p = particles[i]; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; if (p.life <= 0) { particles.splice(i, 1); } } }
+
+        // --- Render Function ---
+        function render(dt) { /* ... Rendering functions remain the same ... */
+             if (!assetsLoaded) { ctx.fillStyle = 'black'; ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT); ctx.fillStyle = 'white'; ctx.font = '20px monospace'; ctx.textAlign = 'center'; ctx.fillText('Loading Assets...', SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2); return; }
+            ctx.fillStyle = 'black'; ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+            drawStars(); drawDistantBattle(ctx); drawCynoField(ctx); drawBigShip(ctx);
+            drawStation(dt); drawAsteroids(dt); drawNPCs(dt); drawParticles(dt);
+            drawMiningBeam(); drawPlayer(); drawConcordShip();
+        }
+
+        // --- BLACK MARKET CHANGE: Function to apply item effects ---
+        function applyItemEffects() {
+            // Reset stats to base values first
+            PLAYER_THRUST_POWER = 200;
+            PLAYER_TURN_RATE = Math.PI * 1.8;
+            PLAYER_MAX_CARGO = 100;
+            MINING_RATE = 25;
+            MINING_RANGE = 70;
+            activeItemDisplayEl.textContent = "Ship Systems: Nominal"; // Default text
+
+            if (!player.activeItem) {
+                maxCargoEl.textContent = PLAYER_MAX_CARGO; // Update UI if reset needed
+                return; // No item equipped
+            }
+
+            console.log(`Applying effect for item: ${player.activeItem}`);
+            let itemText = "Unknown Upgrade";
+
+            // Apply effects based on item ID
+            switch(player.activeItem) {
+                case 'cargo_expander_1':
+                    PLAYER_MAX_CARGO = 150;
+                    itemText = "Cargo Expander I";
+                    break;
+                case 'mining_laser_upgrade_1':
+                    MINING_RATE = 35; // Faster mining
+                    itemText = "Mining Laser Upgrade I";
+                    break;
+                case 'afterburner_1':
+                    PLAYER_THRUST_POWER = 280; // Faster acceleration
+                    itemText = "Afterburner I";
+                    break;
+                 case 'long_range_scanner':
+                    MINING_RANGE = 100; // Increased mining range
+                    itemText = "Long Range Scanner";
+                    break;
+                // Add more cases for other items here
+            }
+
+            // Update UI elements affected by stats
+            maxCargoEl.textContent = PLAYER_MAX_CARGO;
+            activeItemDisplayEl.textContent = `Active Mod: ${itemText}`;
+            showMessage(`Installed: ${itemText}!`, 3000);
+        }
+
+        // --- BLACK MARKET CHANGE: Function to handle loading data from URL ---
+        function loadDataFromUrl() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const itemId = urlParams.get('item');
+            const kreds = urlParams.get('kreds');
+
+            if (itemId) {
+                player.activeItem = itemId;
+                console.log(`Received item ID: ${itemId}`);
+            }
+            if (kreds) {
+                player.nohKredits = parseInt(kreds, 10) || 0;
+                console.log(`Received remaining Kredits: ${player.nohKredits}`);
+            }
+
+            // Apply effects AFTER loading the item
+            applyItemEffects();
+
+            // Clean the URL so effects aren't re-applied on refresh
+            if (itemId || kreds) {
+                window.history.replaceState({}, document.title, window.location.pathname);
+                console.log("URL parameters cleared.");
+            }
+        }
+
+
+        // --- Main Game Loop ---
+        function gameLoop(timestamp) { /* ... Loop remains the same ... */
+            if (!lastTime) { lastTime = timestamp; }
+            const baseDeltaTime = Math.min((timestamp - lastTime) / 1000, 0.1);
+            lastTime = timestamp;
+            const effectiveDeltaTime = baseDeltaTime * tidiFactor;
+
+            try {
+                handleInput(effectiveDeltaTime);
+                update(effectiveDeltaTime);
+                render(effectiveDeltaTime);
+            } catch (error) {
+                console.error("Error in game loop:", error);
+                assetsLoaded = false; ctx.fillStyle = 'red'; ctx.fillRect(0,0,SCREEN_WIDTH, SCREEN_HEIGHT);
+                ctx.fillStyle = 'white'; ctx.font = '16px monospace'; ctx.textAlign = 'center';
+                ctx.fillText("A critical error occurred. Check console (F12).", SCREEN_WIDTH/2, SCREEN_HEIGHT/2);
+                ctx.fillText(error.message, SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 20);
+                ctx.fillText("Please reload the page.", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 40);
+                return; // Stop the loop
+            }
+            requestAnimationFrame(gameLoop);
+        }
+
+        // --- Initialization ---
+        window.addEventListener('keydown', (e) => { keys[e.key.toLowerCase()] = true; if(e.key === 'Enter' && isGameOver) { keys['enter'] = true; } });
+        window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; if(e.key === 'Enter') { keys['enter'] = false; }});
+        gameOverOverlayEl.addEventListener('click', resetGame);
+        maxCargoEl.textContent = PLAYER_MAX_CARGO;
+        iskEl.textContent = isk;
+
+        // BLACK MARKET CHANGE: Add event listener for the market button
+        blackMarketButtonEl.addEventListener('click', () => {
+            if (isDocked && isk >= BLACK_MARKET_ENTRY_ISK) {
+                const url = `${BLACK_MARKET_HTML_FILE}?isk=${Math.floor(isk)}`;
+                console.log(`Navigating to Black Market: ${url}`);
+                window.location.href = url;
+            } else if (!isDocked) {
+                 showMessage("Must be docked at Jita 4-4 to access market.", 2000);
+            } else {
+                 showMessage(`Insufficient ISK. Need ${BLACK_MARKET_ENTRY_ISK} ISK to enter.`, 2000);
+            }
+        });
+
+        loadAssets();
+        loadDataFromUrl(); // BLACK MARKET CHANGE: Load data from URL after assets are ready
+        requestAnimationFrame(gameLoop);
+
+    </script>
+</body>
+</html>
