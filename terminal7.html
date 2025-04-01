@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SYS_AMBIENCE://JITA.GRID.v7</title> <!-- Corrected Title -->
+    <style>
+        :root {
+            --background-color: #05080a; /* Even darker */
+            --text-color: #b0c0c8;
+            --accent-color: #00f0ff; /* Slightly adjusted cyan */
+            --panel-bg: #0f141a;
+            --button-bg: #18222b;
+            --button-border: #253542;
+            --button-hover-bg: #223341;
+            --button-active-bg: #1f4055; /* Darker active */
+            --button-active-border: var(--accent-color);
+            --indicator-off: #283845;
+            --indicator-on: var(--accent-color);
+            --font-stack: 'Consolas', 'Courier New', monospace;
+            --glow-color: rgba(0, 240, 255, 0.6); /* Accent glow */
+            --line-color: rgba(0, 240, 255, 0.3); /* Topo line color */
+            --text-fragment-color: rgba(176, 192, 200, 0.7); /* Text color */
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            font-family: var(--font-stack);
+            font-size: 16px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            flex-direction: column;
+            overflow: hidden; /* Prevent scrollbars from text */
+        }
+
+        h1 {
+            color: var(--accent-color);
+            text-align: center;
+            margin-bottom: 1em;
+            font-size: 1.8em;
+            text-shadow: 0 0 8px var(--glow-color);
+            z-index: 10; /* Above text fragments */
+        }
+
+        .control-panel {
+            background-color: var(--panel-bg);
+            border: 2px solid var(--button-border);
+            padding: 25px;
+            border-radius: 8px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.6), inset 0 0 15px rgba(0, 0, 0, 0.4);
+            width: clamp(300px, 80%, 600px);
+            position: relative; /* Needed for text fragment container */
+            z-index: 1;
+        }
+
+        /* Container for floating text */
+        .text-fragment-container {
+            position: absolute;
+            inset: -30px; /* Allow text slightly outside panel */
+            pointer-events: none; /* Allow clicks through */
+            overflow: hidden;
+            z-index: 5;
+        }
+
+        .text-fragment {
+            position: absolute;
+            color: var(--text-fragment-color);
+            font-size: clamp(10px, 1.5vw, 16px);
+            opacity: 0;
+            transition: opacity 0.6s cubic-bezier(0.25, 1, 0.5, 1); /* Smoother fade */
+            white-space: nowrap;
+            text-shadow: 0 0 3px rgba(0, 0, 0, 0.5);
+            will-change: opacity; /* Hint for performance */
+        }
+
+        .panel-button {
+            background-color: var(--button-bg);
+            border: 2px solid var(--button-border);
+            color: var(--text-color);
+            padding: 15px 10px;
+            font-family: var(--font-stack);
+            font-size: 0.9em;
+            text-align: center;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+            position: relative; /* For indicator AND overlay */
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 80px;
+            z-index: 2; /* Above panel bg, below text fragments */
+        }
+
+        /* Visual Overlay for SVG Lines */
+        .visual-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1; /* Below button text */
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
+        }
+        .panel-button.active .visual-overlay {
+            opacity: 1;
+        }
+        .visual-overlay svg {
+            display: block;
+            width: 100%;
+            height: 100%;
+            filter: drop-shadow(0 0 3px var(--glow-color)); /* Apply glow to lines */
+        }
+        .visual-overlay svg path {
+            fill: none;
+            stroke: var(--line-color);
+            stroke-width: 1;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            mix-blend-mode: screen; /* Nice blend effect */
+        }
+
+
+        .panel-button:hover {
+            background-color: var(--button-hover-bg);
+            border-color: #4a5f70;
+        }
+
+        .panel-button.active {
+            background-color: var(--button-active-bg);
+            border-color: var(--button-active-border);
+            color: #ffffff;
+            box-shadow: 0 0 12px var(--glow-color);
+        }
+
+        .button-label { /* Wrap text to be above overlay */
+             position: relative;
+             z-index: 2;
+        }
+
+        .indicator {
+            display: block;
+            width: 10px;
+            height: 10px;
+            background-color: var(--indicator-off);
+            border-radius: 50%;
+            margin-top: 8px;
+            transition: background-color 0.2s ease, box-shadow 0.2s ease;
+            box-shadow: inset 0 0 3px rgba(0, 0, 0, 0.5);
+            position: relative; /* Above overlay */
+            z-index: 2;
+        }
+
+        .panel-button.active .indicator {
+            background-color: var(--indicator-on);
+            box-shadow: 0 0 8px var(--glow-color), inset 0 0 2px rgba(255, 255, 255, 0.5);
+        }
+
+        /* Specific button placement */
+         #button-scape-1 { grid-column: 1 / 2; }
+         #button-scape-2 { grid-column: 2 / 3; }
+         #button-scape-3 { grid-column: 3 / 4; }
+         #button-scape-4 { grid-column: 1 / 2; grid-row: 2 / 3; }
+         #button-scape-5 { grid-column: 2 / 4; grid-row: 2 / 3; }
+
+         .init-message {
+            text-align: center; padding: 15px; margin-bottom: 20px;
+            color: var(--accent-color); font-weight: bold;
+            border: 1px dashed var(--button-border); background-color: rgba(0,0,0,0.2);
+         }
+         .init-message.hidden { display: none; }
+
+    </style>
+</head>
+<body>
+    <h1>SYS_AMBIENCE://JITA.GRID.v7</h1> <!-- Corrected Heading -->
+
+    <div class="init-message" id="init-message">
+        Select ambient matrix node. Audio-Visual stream requires interaction.
+    </div>
+
+    <div class="control-panel" id="control-panel">
+        <!-- Text Fragment Container -->
+        <div class="text-fragment-container" id="text-fragment-container"></div>
+
+        <!-- Buttons -->
+        <button class="panel-button" id="button-scape-1" data-soundscape="terminalHum">
+            <div class="visual-overlay"></div>
+            <span class="button-label">Circadian Sync Loop</span>
+            <span class="indicator"></span>
+        </button>
+        <button class="panel-button" id="button-scape-2" data-soundscape="subBasement">
+             <div class="visual-overlay"></div>
+            <span class="button-label">Sub-Basement Resonance</span>
+            <span class="indicator"></span>
+        </button>
+         <button class="panel-button" id="button-scape-3" data-soundscape="quafeFlow">
+             <div class="visual-overlay"></div>
+            <span class="button-label">Quafe Flow Static</span>
+            <span class="indicator"></span>
+        </button>
+        <button class="panel-button" id="button-scape-4" data-soundscape="sabikFrequency">
+            <div class="visual-overlay"></div>
+            <span class="button-label">Sabik Frequency Drift</span>
+            <span class="indicator"></span>
+        </button>
+         <button class="panel-button" id="button-scape-5" data-soundscape="dataStream">
+            <div class="visual-overlay"></div>
+            <span class="button-label">Isotope Data Stream</span>
+            <span class="indicator"></span>
+        </button>
+    </div>
+
+    <script>
+        let audioContext = null;
+        let masterGain = null;
+        let isPlaying = false;
+        let currentScapeKey = null;
+        // activeScapeNodes: Track ALL active elements (audio & visual) for the current soundscape
+        let activeScapeNodes = {
+            oscillators: [], lfos: [], sources: [], filters: [], gainNodes:[],
+            audioIntervalId: null,
+            textIntervalId: null, // For text fragment spawning
+            activeButton: null // Reference to the active button element
+        };
+
+        const controlPanel = document.getElementById('control-panel');
+        const textFragmentContainer = document.getElementById('text-fragment-container');
+        const initMessage = document.getElementById('init-message');
+        const FADE_TIME = 1.5; // seconds
+
+        // --- Audio Context Init ---
+        function initAudioContext() {
+             if (!audioContext) {
+                try {
+                    window.AudioContext = window.AudioContext || window.webkitAudioContext;
+                    audioContext = new AudioContext();
+                    masterGain = audioContext.createGain();
+                    masterGain.connect(audioContext.destination);
+                    masterGain.gain.setValueAtTime(0, audioContext.currentTime); // Start silent
+                    console.log("AudioContext Initialized.");
+                    if (initMessage) initMessage.classList.add('hidden');
+                } catch (e) {
+                    console.error("Web Audio API is not supported.", e);
+                    if (initMessage) initMessage.textContent = "Error: Web Audio API not supported.";
+                    controlPanel.style.opacity = '0.5';
+                    controlPanel.style.pointerEvents = 'none';
+                }
+            }
+            return audioContext;
+        }
+
+        // --- Sound Generation Primitives ---
+
+        // Helper to create a basic LFO
+        function createLFO(context, freq, depth) {
+            if (!context) return null;
+            const lfo = context.createOscillator();
+            lfo.type = 'sine';
+            lfo.frequency.setValueAtTime(freq, context.currentTime);
+            const lfoGain = context.createGain();
+            lfoGain.gain.setValueAtTime(depth, context.currentTime);
+            lfo.connect(lfoGain);
+            lfo.start(context.currentTime);
+            activeScapeNodes.lfos.push(lfo); // Track LFO oscillator to stop it
+            return lfoGain; // Return the gain node to connect to a parameter
+        }
+
+        // Helper to create a basic ambient layer
+         function createAmbientLayer(context, destination, {
+            freq = 60, type = 'sine', filterFreq = 500, filterQ = 1,
+            volume = 0.1, attack = 0.5, decay = 0, // Attack/decay for gain node
+            lfoFreq = 0, freqModDepth = 0, // Frequency LFO params
+            volLfoFreq = 0, volModDepth = 0 // Volume LFO params
+        }) {
+            if (!context || !destination) return null;
+
+            const osc = context.createOscillator();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, context.currentTime);
+
+            const filter = context.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(filterFreq, context.currentTime);
+            filter.Q.setValueAtTime(filterQ, context.currentTime);
+
+            const gainNode = context.createGain();
+            gainNode.gain.setValueAtTime(0, context.currentTime); // Start silent for attack
+            gainNode.gain.linearRampToValueAtTime(volume, context.currentTime + attack);
+            if (decay > 0) { // Optional decay
+                 gainNode.gain.linearRampToValueAtTime(0, context.currentTime + attack + decay);
+            }
+
+            // Frequency LFO
+            if (lfoFreq > 0 && freqModDepth > 0) {
+                const freqLfoGain = createLFO(context, lfoFreq, freqModDepth);
+                if (freqLfoGain) freqLfoGain.connect(osc.frequency);
+            }
+
+            // Volume LFO (connected to gain node's gain AudioParam)
+            if (volLfoFreq > 0 && volModDepth > 0) {
+                 const volLfo = context.createOscillator();
+                 volLfo.type = 'sine';
+                 volLfo.frequency.setValueAtTime(volLfoFreq, context.currentTime);
+                 const volLfoGain = context.createGain();
+                 // Modulate gain around the target volume, scaled by depth
+                 volLfoGain.gain.setValueAtTime(volume * volModDepth, context.currentTime);
+                 volLfo.connect(volLfoGain).connect(gainNode.gain); // Modulate gain param
+                 volLfo.start(context.currentTime);
+                 activeScapeNodes.lfos.push(volLfo); // Track this LFO oscillator
+            }
+
+
+            osc.connect(filter).connect(gainNode).connect(destination);
+            osc.start(context.currentTime);
+            if (decay > 0) osc.stop(context.currentTime + attack + decay); // Stop if it has decay
+
+            // Track nodes to stop them later
+            activeScapeNodes.oscillators.push(osc);
+            activeScapeNodes.filters.push(filter);
+            activeScapeNodes.gainNodes.push(gainNode);
+
+            return { osc, filter, gainNode };
+        }
+
+        // --- Discrete Sound Effects (Connect to masterGain) ---
+        function playSoundEffect(context, destination, type) {
+            if (!context || !destination) return;
+             const now = context.currentTime;
+             let osc, gainNode, noiseSource, bufferSize, output, noiseBuffer, filter;
+
+             gainNode = context.createGain();
+             gainNode.connect(destination);
+             gainNode.gain.setValueAtTime(0, now);
+
+            // Note: These sound effects are short-lived and don't need explicit tracking
+            // in activeScapeNodes as they clean themselves up with .stop()
+            switch(type) {
+                case 'alert':
+                    gainNode.gain.linearRampToValueAtTime(0.3, now + 0.01);
+                    gainNode.gain.setValueAtTime(0.3, now + 0.1);
+                    gainNode.gain.linearRampToValueAtTime(0, now + 0.15);
+                    osc = context.createOscillator();
+                    osc.type = 'square';
+                    osc.frequency.setValueAtTime(880, now);
+                    osc.connect(gainNode);
+                    osc.start(now);
+                    osc.stop(now + 0.15);
+                    break;
+                 case 'blip':
+                    gainNode.gain.linearRampToValueAtTime(0.4, now + 0.005);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                    osc = context.createOscillator();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(1500 + Math.random() * 200, now); // Slight variation
+                    osc.connect(gainNode);
+                    osc.start(now);
+                    osc.stop(now + 0.1);
+                    break;
+                case 'hiss':
+                     const duration = 0.15;
+                     gainNode.gain.linearRampToValueAtTime(0.15, now + 0.02);
+                     gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration);
+                     bufferSize = context.sampleRate * duration;
+                     noiseBuffer = context.createBuffer(1, bufferSize, context.sampleRate);
+                     output = noiseBuffer.getChannelData(0);
+                     for (let i = 0; i < bufferSize; i++) { output[i] = Math.random() * 2 - 1; }
+                     noiseSource = context.createBufferSource();
+                     noiseSource.buffer = noiseBuffer;
+                     noiseSource.connect(gainNode);
+                     noiseSource.start(now);
+                     // No need to call stop, BufferSource stops automatically when buffer ends
+                     break;
+                case 'low_thump':
+                     gainNode.gain.linearRampToValueAtTime(0.5, now + 0.01);
+                     gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                     osc = context.createOscillator();
+                     osc.type = 'sine';
+                     osc.frequency.setValueAtTime(50, now);
+                     osc.frequency.exponentialRampToValueAtTime(30, now + 0.2); // Pitch drop
+                     osc.connect(gainNode);
+                     osc.start(now);
+                     osc.stop(now + 0.3);
+                     break;
+                 case 'data_glitch':
+                     const glitchDuration = 0.05 + Math.random() * 0.1;
+                     gainNode.gain.linearRampToValueAtTime(0.2, now + 0.005);
+                     gainNode.gain.setValueAtTime(0.2, now + glitchDuration * 0.8);
+                     gainNode.gain.linearRampToValueAtTime(0, now + glitchDuration);
+                     bufferSize = context.sampleRate * glitchDuration;
+                     noiseBuffer = context.createBuffer(1, bufferSize, context.sampleRate);
+                     output = noiseBuffer.getChannelData(0);
+                     // More crunchy noise
+                     for (let i = 0; i < bufferSize; i++) { output[i] = (Math.random() > 0.6 ? Math.random() * 2 - 1 : 0); }
+                     noiseSource = context.createBufferSource();
+                     noiseSource.buffer = noiseBuffer;
+                     filter = context.createBiquadFilter(); // Corrected name
+                     filter.type = 'bandpass';
+                     filter.frequency.setValueAtTime(1000 + Math.random() * 2000, now);
+                     filter.Q.setValueAtTime(10 + Math.random() * 10, now);
+                     noiseSource.connect(filter).connect(gainNode);
+                     noiseSource.start(now);
+                     break;
+            }
+        }
+
+        // --- Visual Elements Setup ---
+
+        // --- Character Pools for Text Fragments ---
+        const charPools = {
+            terminalHum: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ".repeat(2).split('').concat(['...', 'STATUS', 'ID_SCAN', 'SYNC']),
+            subBasement: "██▒▒░░><!-ERROR-><VOID>RETURN() ".split('').concat(['LOW_SIG', 'DEPTH', 'PRESSURE']),
+            quafeFlow: "()[]{};:'\".,<>/?`~!@#$%^&*+= ".split('').concat(['QUAFFE', 'REFRESH', 'FLOW', 'DELUXE']),
+            sabikFrequency: "天地人水火風空日月星陰陽☰☱☲☳☴☵☶☷<>+-".split('').concat(['SABIK', 'UNKNOWN', 'DRIFT']),
+            dataStream: "01".repeat(10).split('').concat("abcdefABCDEF+-*[]{}()<>".split(''), ['SEGFAULT', 'BUFFER', 'CYNO', 'JUMP'])
+        };
+
+        // --- SVG Topography Generation ---
+        function generateTopographySVG(config = {}) {
+            const { width = 100, height = 80, lines = 5, complexity = 5, noise = 0.3, color = 'var(--line-color)' } = config;
+            let svgPaths = '';
+            const padding = 10; // Keep lines away from edge
+
+            for (let i = 0; i < lines; i++) {
+                let pathData = `M ${padding + Math.random() * (width - 2*padding)} ${padding + Math.random() * (height - 2*padding)}`;
+                let currentX = parseFloat(pathData.split(' ')[1]);
+                let currentY = parseFloat(pathData.split(' ')[2]);
+
+                for (let j = 0; j < complexity; j++) {
+                    // Generate control points for Bezier curve with noise
+                    const cp1x = currentX + (Math.random() - 0.5) * (width * noise);
+                    const cp1y = currentY + (Math.random() - 0.5) * (height * noise);
+                    const cp2x = currentX + (Math.random() - 0.5) * (width * noise * 2); // More variation potential
+                    const cp2y = currentY + (Math.random() - 0.5) * (height * noise * 2);
+                    const endX = Math.max(padding, Math.min(width - padding, currentX + (Math.random() - 0.5) * (width / complexity)));
+                    const endY = Math.max(padding, Math.min(height - padding, currentY + (Math.random() - 0.5) * (height / complexity)));
+
+                    pathData += ` C ${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${endX.toFixed(1)},${endY.toFixed(1)}`;
+                    currentX = endX;
+                    currentY = endY;
+                }
+                 svgPaths += `<path d="${pathData}" stroke="${color}" />`;
+            }
+
+            return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">${svgPaths}</svg>`;
+        }
+
+        // --- Text Fragment Spawning ---
+        function spawnTextFragment(config) {
+             if (!textFragmentContainer) return;
+             const { pool = charPools.terminalHum, minLen = 3, maxLen = 12 } = config;
+
+             const fragment = document.createElement('span');
+             fragment.className = 'text-fragment';
+
+             const len = Math.floor(Math.random() * (maxLen - minLen + 1)) + minLen;
+             let text = '';
+             for (let i = 0; i < len; i++) {
+                 text += pool[Math.floor(Math.random() * pool.length)];
+             }
+             fragment.textContent = text;
+
+             fragment.style.left = `${Math.random() * 100}%`;
+             fragment.style.top = `${Math.random() * 100}%`;
+
+             textFragmentContainer.appendChild(fragment);
+
+             requestAnimationFrame(() => {
+                 fragment.style.opacity = '1'; // Fade in
+             });
+
+             const lifeTime = 2000 + Math.random() * 3000; // Live for 2-5 seconds
+             setTimeout(() => {
+                 fragment.style.opacity = '0'; // Fade out
+                 setTimeout(() => {
+                     if (fragment.parentNode === textFragmentContainer) {
+                         fragment.remove(); // Remove from DOM after fade
+                     }
+                 }, 600); // Match CSS transition duration
+             }, lifeTime);
+        }
+
+         // --- Combined Soundscape Definitions (Audio + Visuals) ---
+        const soundscapeDefinitions = {
+            terminalHum: {
+                createAudio: (context, destination) => {
+                    // Base hum, occasional alerts
+                    createAmbientLayer(context, destination, { freq: 70, type: 'sawtooth', filterFreq: 400, volume: 0.15, lfoFreq: 0.1, freqModDepth: 2, volLfoFreq: 0.15, volModDepth: 0.1, attack: FADE_TIME });
+                    createAmbientLayer(context, destination, { freq: 120, type: 'sine', filterFreq: 800, volume: 0.1, lfoFreq: 0.2, freqModDepth: 1, attack: FADE_TIME });
+                    return setInterval(() => { // Random events
+                         if (Math.random() < 0.1) playSoundEffect(context, destination, 'alert');
+                         if (Math.random() < 0.05) playSoundEffect(context, destination, 'hiss');
+                    }, 6000);
+                },
+                visuals: {
+                    lines: { lines: 4, complexity: 4, noise: 0.25 },
+                    text: { pool: charPools.terminalHum, interval: 500 } // ms between spawns
+                }
+            },
+            subBasement: {
+                 createAudio: (context, destination) => {
+                    // Deeper, slower, more resonant, muffled
+                    createAmbientLayer(context, destination, { freq: 40, type: 'square', filterFreq: 150, volume: 0.2, lfoFreq: 0.05, freqModDepth: 1, volLfoFreq: 0.08, volModDepth: 0.15, attack: FADE_TIME });
+                    createAmbientLayer(context, destination, { freq: 65, type: 'sine', filterFreq: 250, volume: 0.15, lfoFreq: 0.07, freqModDepth: 0.5, attack: FADE_TIME });
+                    return setInterval(() => { // Random events
+                         if (Math.random() < 0.1) playSoundEffect(context, destination, 'low_thump');
+                         if (Math.random() < 0.08) playSoundEffect(context, destination, 'hiss');
+                    }, 8000);
+                 },
+                 visuals: {
+                    lines: { lines: 6, complexity: 3, noise: 0.4, color: 'rgba(100, 180, 220, 0.2)' }, // Different color/params
+                    text: { pool: charPools.subBasement, interval: 700 }
+                 }
+            },
+             quafeFlow: {
+                 createAudio: (context, destination) => {
+                    // Lighter, maybe filtered noise, clean tones
+                    createAmbientLayer(context, destination, { freq: 150, type: 'sine', filterFreq: 1200, volume: 0.1, lfoFreq: 0.3, freqModDepth: 1.5, attack: FADE_TIME });
+                    createAmbientLayer(context, destination, { freq: 220, type: 'triangle', filterFreq: 1500, volume: 0.08, lfoFreq: 0.4, freqModDepth: 2, volLfoFreq: 0.2, volModDepth: 0.1, attack: FADE_TIME });
+
+                    // Filtered Noise for "flow"
+                    const noiseSource = context.createBufferSource();
+                    const bufferSize = context.sampleRate * 2; // Use a buffer for noise
+                    const noiseBuffer = context.createBuffer(1, bufferSize, context.sampleRate);
+                    const output = noiseBuffer.getChannelData(0);
+                    for (let i = 0; i < bufferSize; i++) { output[i] = Math.random() * 2 - 1; } // White noise
+                    noiseSource.buffer = noiseBuffer;
+                    noiseSource.loop = true;
+                    const noiseFilter = context.createBiquadFilter();
+                    noiseFilter.type = 'bandpass';
+                    noiseFilter.frequency.setValueAtTime(800, context.currentTime);
+                    noiseFilter.Q.setValueAtTime(5, context.currentTime);
+                    const noiseGain = context.createGain();
+                    noiseGain.gain.setValueAtTime(0, context.currentTime);
+                    noiseGain.gain.linearRampToValueAtTime(0.04, context.currentTime + FADE_TIME); // Fade in noise
+                    noiseSource.connect(noiseFilter).connect(noiseGain).connect(destination);
+                    noiseSource.start(context.currentTime);
+
+                    // Track manually created persistent nodes
+                    activeScapeNodes.sources.push(noiseSource);
+                    activeScapeNodes.filters.push(noiseFilter);
+                    activeScapeNodes.gainNodes.push(noiseGain);
+
+                    return setInterval(() => {
+                         if (Math.random() < 0.1) playSoundEffect(context, destination, 'blip');
+                    }, 5000);
+                 },
+                 visuals: {
+                    lines: { lines: 3, complexity: 6, noise: 0.2, color: 'rgba(0, 255, 150, 0.3)'}, // Greenish
+                    text: { pool: charPools.quafeFlow, interval: 400 }
+                 }
+             },
+             sabikFrequency: {
+                  createAudio: (context, destination) => {
+                    // More unsettling, dissonant, pulsing, frequent blips
+                    createAmbientLayer(context, destination, { freq: 55, type: 'sawtooth', filterFreq: 600, volume: 0.15, lfoFreq: 0.08, freqModDepth: 3, attack: FADE_TIME });
+                    // Detuned layer for dissonance
+                    createAmbientLayer(context, destination, { freq: 56.5, type: 'sawtooth', filterFreq: 700, volume: 0.1, lfoFreq: 0.1, freqModDepth: 2.5, attack: FADE_TIME });
+                    // Slow pulse using volume LFO
+                    createAmbientLayer(context, destination, { freq: 30, type: 'sine', filterFreq: 100, volume: 0.2, volLfoFreq: 0.5, volModDepth: 0.8, attack: FADE_TIME });
+
+                    return setInterval(() => {
+                         if (Math.random() < 0.2) playSoundEffect(context, destination, 'blip');
+                         if (Math.random() < 0.05) playSoundEffect(context, destination, 'hiss');
+                    }, 4000);
+                  },
+                  visuals: {
+                    lines: { lines: 8, complexity: 5, noise: 0.5, color: 'rgba(255, 100, 100, 0.3)' }, // Reddish, chaotic
+                    text: { pool: charPools.sabikFrequency, interval: 300 }
+                  }
+             },
+             dataStream: {
+                  createAudio: (context, destination) => {
+                    // Less humming, more noise, glitches, high frequencies
+                    createAmbientLayer(context, destination, { freq: 440, type: 'sine', filterFreq: 2000, volume: 0.05, lfoFreq: 0.5, freqModDepth: 10, volLfoFreq: 1, volModDepth: 0.3, attack: FADE_TIME }); // High freq flutter
+
+                    // More prominent filtered noise with sweeping filter
+                    const noiseSource = context.createBufferSource();
+                    const bufferSize = context.sampleRate * 2;
+                    const noiseBuffer = context.createBuffer(1, bufferSize, context.sampleRate);
+                    const output = noiseBuffer.getChannelData(0);
+                    for (let i = 0; i < bufferSize; i++) { output[i] = Math.random() * 2 - 1; }
+                    noiseSource.buffer = noiseBuffer;
+                    noiseSource.loop = true;
+                    const noiseFilter = context.createBiquadFilter();
+                    noiseFilter.type = 'highpass'; // Let high freqs through
+                    noiseFilter.frequency.setValueAtTime(1500, context.currentTime); // Start freq
+                    const noiseGain = context.createGain();
+                    noiseGain.gain.setValueAtTime(0, context.currentTime);
+                    noiseGain.gain.linearRampToValueAtTime(0.08, context.currentTime + FADE_TIME); // Fade in noise
+
+                    // Add LFO to noise filter freq for sweeping effect
+                    const filterLfoGain = createLFO(context, 0.15, 1000); // Modulate freq by +/- 1000Hz
+                    if (filterLfoGain) filterLfoGain.connect(noiseFilter.frequency);
+
+                    noiseSource.connect(noiseFilter).connect(noiseGain).connect(destination);
+                    noiseSource.start(context.currentTime);
+
+                    // Track manually created persistent nodes
+                    activeScapeNodes.sources.push(noiseSource);
+                    activeScapeNodes.filters.push(noiseFilter);
+                    activeScapeNodes.gainNodes.push(noiseGain);
+                    // Note: The LFO oscillator itself is tracked within createLFO
+
+                    return setInterval(() => {
+                         if (Math.random() < 0.25) playSoundEffect(context, destination, 'data_glitch');
+                         if (Math.random() < 0.15) playSoundEffect(context, destination, 'blip');
+                    }, 2500); // More frequent events
+                  },
+                  visuals: {
+                    lines: { lines: 10, complexity: 2, noise: 0.15, color: 'rgba(200, 200, 255, 0.3)' }, // Thin, many lines
+                    text: { pool: charPools.dataStream, interval: 200 } // Fast text
+                  }
+             }
+        };
+
+
+        // --- Soundscape Control Logic (Handles Audio + Visuals) ---
+
+        function stopCurrentSoundscape(onComplete) {
+            if (!isPlaying || !audioContext || !masterGain || !currentScapeKey) {
+                 if (onComplete) onComplete(); return;
+            }
+            console.log(`Stopping soundscape: ${currentScapeKey}`);
+
+            // --- Stop Visuals ---
+            // Clear Text Interval
+            if (activeScapeNodes.textIntervalId) {
+                clearInterval(activeScapeNodes.textIntervalId);
+                activeScapeNodes.textIntervalId = null;
+            }
+             // Clear Text Fragments immediately (optional, could let them fade)
+             if (textFragmentContainer) {
+                // textFragmentContainer.innerHTML = ''; // Less graceful than letting them fade
+             }
+            // Clear SVG Overlay and deactivate button
+            if (activeScapeNodes.activeButton) {
+                 const overlay = activeScapeNodes.activeButton.querySelector('.visual-overlay');
+                 if(overlay) overlay.innerHTML = ''; // Clear SVG content
+                 activeScapeNodes.activeButton.classList.remove('active');
+                 activeScapeNodes.activeButton = null;
+            }
+
+
+            // --- Stop Audio ---
+            const now = audioContext.currentTime;
+            // Fade out master gain
+            masterGain.gain.cancelScheduledValues(now);
+            // Use linear ramp to avoid sudden clicks if gain was being modulated
+            masterGain.gain.linearRampToValueAtTime(0.0001, now + FADE_TIME);
+
+            // Clear random event interval
+             if (activeScapeNodes.audioIntervalId) {
+                 clearInterval(activeScapeNodes.audioIntervalId);
+                 activeScapeNodes.audioIntervalId = null;
+             }
+
+            // Stop all persistent nodes after fade-out completes
+            setTimeout(() => {
+                 console.log("Executing audio node stop actions...");
+                 // Use try/catch as nodes might already be stopped or disconnected
+                 activeScapeNodes.oscillators.forEach(node => { try { node.stop(0); } catch(e){} try { node.disconnect(); } catch(e){} });
+                 activeScapeNodes.sources.forEach(node => { try { node.stop(0); } catch(e){} try { node.disconnect(); } catch(e){} });
+                 activeScapeNodes.lfos.forEach(node => { try { node.stop(0); } catch(e){} try { node.disconnect(); } catch(e){} });
+                 activeScapeNodes.gainNodes.forEach(node => { try { node.disconnect(); } catch(e){} }); // Gains don't stop, just disconnect
+                 activeScapeNodes.filters.forEach(node => { try { node.disconnect(); } catch(e){} }); // Filters don't stop, just disconnect
+
+                 // Clear the tracking object completely
+                 activeScapeNodes = { oscillators: [], lfos: [], sources: [], filters: [], gainNodes:[], audioIntervalId: null, textIntervalId: null, activeButton: null };
+
+                 isPlaying = false;
+                 currentScapeKey = null;
+                 console.log("Soundscape stopped.");
+                 if (onComplete) onComplete(); // Callback after stopping
+
+            }, FADE_TIME * 1000 + 100); // Wait for fade + buffer
+        }
+
+
+         function startSoundscape(scapeKey) {
+            if (!audioContext || !masterGain || !soundscapeDefinitions[scapeKey]) return;
+             if (isPlaying) {
+                 console.warn("Start called while playing. Should stop first."); return;
+             }
+             console.log(`Starting soundscape: ${scapeKey}`);
+
+             // Clear any potentially lingering nodes from a previous failed stop (safety net)
+             activeScapeNodes = { oscillators: [], lfos: [], sources: [], filters: [], gainNodes:[], audioIntervalId: null, textIntervalId: null, activeButton: null };
+
+             const scapeDef = soundscapeDefinitions[scapeKey];
+             const visualConfig = scapeDef.visuals;
+             const audioCreateFn = scapeDef.createAudio;
+
+             // --- Start Audio ---
+             // The createAudio function will populate activeScapeNodes as it creates layers/effects
+             const audioIntervalId = audioCreateFn(audioContext, masterGain);
+             activeScapeNodes.audioIntervalId = audioIntervalId; // Store the interval ID for random sfx
+
+             const now = audioContext.currentTime;
+             masterGain.gain.cancelScheduledValues(now);
+             // Set value instantly to 0 before ramping if gain was previously non-zero
+             masterGain.gain.setValueAtTime(0.0001, now);
+             masterGain.gain.linearRampToValueAtTime(0.4, now + FADE_TIME); // Fade in to target master volume
+
+             // --- Start Visuals ---
+             // Activate Button Style & Store Reference
+             const activeButton = document.querySelector(`.panel-button[data-soundscape="${scapeKey}"]`);
+             if (activeButton) {
+                 // Deactivate any other active buttons (safety)
+                 document.querySelectorAll('.panel-button.active').forEach(btn => btn.classList.remove('active'));
+                 activeButton.classList.add('active');
+                 activeScapeNodes.activeButton = activeButton; // Store button reference
+
+                 // Generate and add SVG Topography
+                  const overlay = activeButton.querySelector('.visual-overlay');
+                  if (overlay && visualConfig.lines) {
+                      // Delay slightly to ensure button dimensions are available? Usually not needed.
+                      requestAnimationFrame(() => {
+                          const svgContent = generateTopographySVG({
+                              width: activeButton.offsetWidth, // Use actual button size
+                              height: activeButton.offsetHeight,
+                              ...visualConfig.lines // Pass specific config
+                          });
+                          overlay.innerHTML = svgContent;
+                      });
+                  }
+             }
+
+            // Start Text Fragment Interval
+            if (textFragmentContainer && visualConfig.text) {
+                // Clear previous interval just in case
+                if (activeScapeNodes.textIntervalId) clearInterval(activeScapeNodes.textIntervalId);
+                // Start new one
+                activeScapeNodes.textIntervalId = setInterval(() => {
+                    spawnTextFragment(visualConfig.text); // Pass config (includes pool)
+                }, visualConfig.text.interval || 500); // Use configured interval or default
+            }
+
+
+             isPlaying = true;
+             currentScapeKey = scapeKey;
+             console.log("Soundscape started.");
+         }
+
+
+        // --- Event Listener Setup ---
+        controlPanel.addEventListener('click', (event) => {
+             const button = event.target.closest('.panel-button');
+            if (!button) return; // Didn't click a button or its child
+
+            // Initialize context on first interaction
+            if (!initAudioContext()) return;
+
+             const scapeKey = button.dataset.soundscape;
+            if (!scapeKey || !soundscapeDefinitions[scapeKey]) {
+                console.warn("Invalid soundscape key:", scapeKey);
+                return;
+            }
+
+            // --- Logic for Switching ---
+            if (isPlaying) {
+                if (currentScapeKey === scapeKey) {
+                    // Clicked the currently active button - stop it
+                    stopCurrentSoundscape();
+                } else {
+                    // Clicked a different button - stop the current, then start the new one
+                    stopCurrentSoundscape(() => {
+                        startSoundscape(scapeKey);
+                    });
+                }
+            } else {
+                // No soundscape is playing - start the clicked one
+                startSoundscape(scapeKey);
+            }
+        });
+
+    </script>
+</body>
+</html>
